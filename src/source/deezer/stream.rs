@@ -1,5 +1,4 @@
 use super::SECRET_IV;
-use crate::util::seek::create_vec_with_capacity;
 use async_trait::async_trait;
 use blowfish::Blowfish;
 use cbc::cipher::{KeyIvInit, block_padding::NoPadding};
@@ -9,8 +8,6 @@ use std::cmp::min;
 use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
 use symphonia::core::io::MediaSource;
 use tokio::task::block_in_place;
-
-static CHUNK_SIZE: usize = 2048;
 
 pub struct DeezerHttpStream {
     request: HttpRequest,
@@ -43,12 +40,12 @@ impl Compose for DeezerHttpStream {
 
 /**
  * Deezer don't support the global seeker due to custom deserializing, hence it needs to be implemented manually
- * PS I could probably have the universal seek support this but probs i'll do it at some point
+ * PS I could probably have the universal seek support this. Probably I'll do it at some point
  */
 pub struct DeezerMediaSource {
     source: Box<dyn MediaSource>,
     key: [u8; 16],
-    buffer: [u8; CHUNK_SIZE],
+    buffer: [u8; 2048],
     position: usize,
     downloaded: Vec<u8>,
     downloaded_bytes: usize,
@@ -75,8 +72,9 @@ impl Read for DeezerMediaSource {
         }
 
         let mut total_read = 0;
+        let chunk_size = self.buffer.len();
 
-        while total_read < CHUNK_SIZE {
+        while total_read < chunk_size {
             let bytes_read = block_in_place(|| self.source.read(&mut self.buffer[total_read..]))?;
 
             if bytes_read == 0 {
@@ -86,9 +84,9 @@ impl Read for DeezerMediaSource {
             total_read += bytes_read;
         }
 
-        let current_chunk = (self.downloaded_bytes as f64 / CHUNK_SIZE as f64).ceil() as usize;
+        let current_chunk = (self.downloaded_bytes as f64 / chunk_size as f64).ceil() as usize;
 
-        if current_chunk % 3 > 0 || total_read < CHUNK_SIZE {
+        if current_chunk % 3 > 0 || total_read < chunk_size {
             self.downloaded.extend(self.buffer[..total_read].iter());
         } else {
             let decryptor: Decryptor<Blowfish> = Decryptor::new_from_slices(&self.key, &SECRET_IV)
@@ -168,11 +166,18 @@ impl DeezerMediaSource {
     pub fn new(source: Box<dyn MediaSource>, key: [u8; 16]) -> Self {
         let total_bytes = block_in_place(|| source.byte_len().map(|size| size as usize));
 
+        let downloaded = if let Some(bytes) = total_bytes.is_some() {
+            Vec::with_capacity(bytes)
+        } else {
+            // rust will reallocate if needed
+            Vec::with_capacity(5e+6 as usize)
+        };
+
         Self {
             source,
             key,
-            buffer: [0; CHUNK_SIZE],
-            downloaded: create_vec_with_capacity(total_bytes),
+            buffer: [0; 2048],
+            downloaded,
             position: 0,
             downloaded_bytes: 0,
             total_bytes,

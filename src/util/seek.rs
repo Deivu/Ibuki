@@ -7,21 +7,6 @@ use symphonia::core::{io::MediaSource, probe::Hint};
 use tokio::task::block_in_place;
 
 static CHUNK_SIZE: usize = 128;
-static INCREMENT_VEC_SIZE: usize = 256;
-
-pub fn create_vec_with_capacity<T>(downloaded_total_bytes: Option<usize>) -> Vec<T> {
-    let Some(capacity) = downloaded_total_bytes else {
-        return Vec::with_capacity(0);
-    };
-
-    let mut initial_capacity = INCREMENT_VEC_SIZE;
-
-    while initial_capacity < capacity {
-        initial_capacity += INCREMENT_VEC_SIZE;
-    }
-
-    Vec::with_capacity(initial_capacity)
-}
 
 pub struct SeekableSource {
     source: Box<dyn MediaSource>,
@@ -122,10 +107,17 @@ impl SeekableSource {
     pub fn new(source: Box<dyn MediaSource>) -> Self {
         let total_bytes = block_in_place(|| source.byte_len().map(|size| size as usize));
 
+        let downloaded = if let Some(bytes) = total_bytes.is_some() {
+            Vec::with_capacity(bytes)
+        } else {
+            // rust will reallocate if needed
+            Vec::with_capacity(5e+6 as usize)
+        };
+
         Self {
             source,
             position: 0,
-            downloaded: create_vec_with_capacity(total_bytes),
+            downloaded,
             downloaded_bytes: 0,
             total_bytes,
         }
