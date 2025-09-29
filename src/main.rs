@@ -43,18 +43,12 @@ mod ws;
 
 #[global_allocator]
 static ALLOCATOR: Cap<GlobalDlmalloc> = Cap::new(GlobalDlmalloc, usize::MAX);
-#[allow(non_upper_case_globals)]
-pub static Config: LazyLock<Config> = LazyLock::new(Config::new);
-#[allow(non_upper_case_globals)]
-pub static Scheduler: LazyLock<Scheduler> = LazyLock::new(Scheduler::default);
-#[allow(non_upper_case_globals)]
-pub static Clients: LazyLock<DashMap<UserId, WebsocketClient>> = LazyLock::new(DashMap::new);
-#[allow(non_upper_case_globals)]
-pub static AvailableSources: LazyLock<DashMap<String, Sources>> = LazyLock::new(DashMap::new);
-#[allow(non_upper_case_globals)]
-pub static Start: LazyLock<Instant> = LazyLock::new(Instant::now);
-#[allow(non_upper_case_globals)]
-pub static Reqwest: LazyLock<Client> = LazyLock::new(|| {
+static CONFIG: LazyLock<Config> = LazyLock::new(Config::new);
+static SCHEDULER: LazyLock<Scheduler> = LazyLock::new(Scheduler::default);
+static CLIENTS: LazyLock<DashMap<UserId, WebsocketClient>> = LazyLock::new(DashMap::new);
+static SOURCES: LazyLock<DashMap<String, Sources>> = LazyLock::new(DashMap::new);
+static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+static REQWEST: LazyLock<Client> = LazyLock::new(|| {
     let builder = ClientBuilder::new().default_headers(generate_headers().unwrap());
     builder.build().expect("Failed to create reqwest client")
 });
@@ -77,40 +71,40 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set global logger");
 
-    LazyLock::force(&Config);
-    LazyLock::force(&Clients);
-    LazyLock::force(&AvailableSources);
-    LazyLock::force(&Start);
-    LazyLock::force(&Reqwest);
+    LazyLock::force(&CONFIG);
+    LazyLock::force(&CLIENTS);
+    LazyLock::force(&SOURCES);
+    LazyLock::force(&START);
+    LazyLock::force(&REQWEST);
 
-    if Config.youtube_config.is_some() {
+    if CONFIG.youtube_config.is_some() {
         let src_name = String::from("Youtube");
 
-        AvailableSources.insert(
+        SOURCES.insert(
             src_name.to_lowercase(),
-            Sources::Youtube(Youtube::new(Some(Reqwest.clone()))),
+            Sources::Youtube(Youtube::new(Some(REQWEST.clone()))),
         );
 
         tracing::info!("Registered [{}] into sources list", src_name);
     }
 
-    if Config.deezer_config.is_some() {
+    if CONFIG.deezer_config.is_some() {
         let src_name = String::from("Deezer");
-        let client = Deezer::new(Some(Reqwest.clone()));
+        let client = Deezer::new(Some(REQWEST.clone()));
 
         client.init().await;
 
-        AvailableSources.insert(src_name.to_lowercase(), Sources::Deezer(client));
+        SOURCES.insert(src_name.to_lowercase(), Sources::Deezer(client));
 
         tracing::info!("Registered [{}] into sources list", src_name);
     }
 
-    if Config.http_config.is_some() {
+    if CONFIG.http_config.is_some() {
         let src_name = String::from("HTTP");
 
-        AvailableSources.insert(
+        SOURCES.insert(
             src_name.to_lowercase(),
-            Sources::Http(Http::new(Some(Reqwest.clone()))),
+            Sources::Http(Http::new(Some(REQWEST.clone()))),
         );
 
         tracing::info!("Registered [{}] into sources list", src_name);
@@ -121,7 +115,7 @@ async fn main() {
 
     tokio::spawn(async move {
         let mut interval = interval(Duration::from_secs(
-            Config.status_update_secs.unwrap_or(30) as u64
+            CONFIG.status_update_secs.unwrap_or(30) as u64
         ));
 
         loop {
@@ -153,9 +147,9 @@ async fn main() {
             );
 
             let stats = ApiStats {
-                players: Scheduler.total_tasks() as u32,
-                playing_players: Scheduler.live_tasks() as u32,
-                uptime: Start.elapsed().as_millis() as u64,
+                players: SCHEDULER.total_tasks() as u32,
+                playing_players: SCHEDULER.live_tasks() as u32,
+                uptime: START.elapsed().as_millis() as u64,
                 // todo: api memory is wip
                 memory: ApiMemory {
                     free,
@@ -175,7 +169,7 @@ async fn main() {
             let serialized =
                 serde_json::to_string(&ApiNodeMessage::Stats(Box::new(stats))).unwrap();
 
-            let set = Clients
+            let set = CLIENTS
                 .iter()
                 .map(|client| {
                     let clone = serialized.clone();
@@ -223,7 +217,7 @@ async fn main() {
         )
         .route("/", routing::get(routes::global::landing));
 
-    let listener = net::TcpListener::bind(format!("{}:{}", Config.address, Config.port))
+    let listener = net::TcpListener::bind(format!("{}:{}", CONFIG.address, CONFIG.port))
         .await
         .unwrap();
 

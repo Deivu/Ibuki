@@ -6,7 +6,7 @@ use super::model::{
 use super::stream::DeezerHttpStream;
 use super::{MEDIA_BASE, PUBLIC_API_BASE};
 use super::{PRIVATE_API_BASE, model::Tokens};
-use crate::Config;
+use crate::CONFIG;
 use crate::util::encoder::encode_base64;
 use crate::util::source::Query;
 use crate::util::url::is_url;
@@ -252,7 +252,7 @@ impl Deezer {
         for i in 0..16 {
             key[i] = hash[i]
                 ^ hash[i + 16]
-                ^ Config
+                ^ CONFIG
                     .deezer_config
                     .as_ref()
                     .expect("Unexpected Nullish Config")
@@ -287,7 +287,7 @@ impl Deezer {
                 "Cookie",
                 format!(
                     "arl={}",
-                    Config
+                    CONFIG
                         .deezer_config
                         .as_ref()
                         .expect("Unexpected Nullish Config")

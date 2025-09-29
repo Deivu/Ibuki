@@ -1,6 +1,6 @@
 use super::{events::PlayerEvent, manager::CleanerSender};
 use crate::{
-    Config, Scheduler,
+    CONFIG, SCHEDULER,
     models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty},
     util::{decoder::decode_base64, errors::PlayerError},
 };
@@ -103,7 +103,7 @@ impl Player {
         let mut guard = self.driver.lock().await;
 
         if guard.is_none() {
-            let config = config.unwrap_or_default().scheduler(Scheduler.to_owned());
+            let config = config.unwrap_or_default().scheduler(SCHEDULER.to_owned());
 
             let mut driver = Driver::new(config.clone());
 
@@ -116,7 +116,7 @@ impl Player {
 
             driver.add_global_event(
                 Event::Periodic(
-                    Duration::from_secs(Config.player_update_secs.unwrap_or(5) as u64),
+                    Duration::from_secs(CONFIG.player_update_secs.unwrap_or(5) as u64),
                     None,
                 ),
                 PlayerEvent::new(Event::Periodic(Duration::from_secs(10), None), self),

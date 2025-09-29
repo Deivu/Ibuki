@@ -8,7 +8,7 @@ use crate::util::converter::numbers::IbukiGuildId;
 use crate::util::decoder::decode_base64;
 use crate::util::errors::EndpointError;
 use crate::util::source::{Source, Sources};
-use crate::{AvailableSources, Clients};
+use crate::{SOURCES, CLIENTS};
 use axum::Json;
 use axum::extract::Path;
 use axum::{body::Body, extract::Query, response::Response};
@@ -23,7 +23,7 @@ pub async fn get_player(
         guild_id,
     }): Path<PlayerMethodsPath>,
 ) -> Result<Response<Body>, EndpointError> {
-    let client = Clients
+    let client = CLIENTS
         .iter()
         .find(|client| client.session_id == session_id)
         .ok_or(EndpointError::NotFound)?;
@@ -48,7 +48,7 @@ pub async fn update_player(
     }): Path<PlayerMethodsPath>,
     Json(update_player): Json<ApiPlayerOptions>,
 ) -> Result<Response<Body>, EndpointError> {
-    let client = Clients
+    let client = CLIENTS
         .iter()
         .find(|client| client.session_id == session_id)
         .ok_or(EndpointError::NotFound)?;
@@ -113,7 +113,7 @@ pub async fn destroy_player(
         guild_id,
     }): Path<PlayerMethodsPath>,
 ) -> Result<Response<Body>, EndpointError> {
-    let client = Clients
+    let client = CLIENTS
         .iter()
         .find(|client| client.session_id == session_id)
         .ok_or(EndpointError::NotFound)?;
@@ -130,7 +130,7 @@ pub async fn update_session(
     Path(SessionMethodsPath { session_id }): Path<SessionMethodsPath>,
     Json(update_session): Json<ApiSessionBody>,
 ) -> Result<Response<Body>, EndpointError> {
-    let mut client = Clients
+    let mut client = CLIENTS
         .iter_mut()
         .find(|client| client.session_id == session_id)
         .ok_or(EndpointError::NotFound)?;
@@ -167,7 +167,7 @@ pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, E
     let track: ApiTrackResult = {
         let mut result = ApiTrackResult::Empty(None);
 
-        for source in AvailableSources.iter() {
+        for source in SOURCES.iter() {
             match source.value() {
                 Sources::Youtube(src) => {
                     let option = src.parse_query(&query.identifier);

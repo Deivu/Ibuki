@@ -1,4 +1,4 @@
-use crate::Clients;
+use crate::CLIENTS;
 use crate::models::{ApiNodeMessage, ApiReady};
 use crate::voice::manager::PlayerManager;
 use axum::Error;
@@ -144,7 +144,7 @@ impl WebsocketClient {
 
             players.clear();
 
-            Clients.remove(&user_id);
+            CLIENTS.remove(&user_id);
 
             tracing::info!("Cleaned up websocket client for [UserId {}]", user_id);
         });
@@ -243,10 +243,10 @@ pub async fn handle_websocket_upgrade_request(
     data: WebsocketRequestData,
     addr: ConnectInfo<SocketAddr>,
 ) {
-    let Some(mut client) = Clients.get_mut(&data.user_id) else {
+    let Some(mut client) = CLIENTS.get_mut(&data.user_id) else {
         let client = WebsocketClient::new(data.user_id);
 
-        Clients.insert(data.user_id, client);
+        CLIENTS.insert(data.user_id, client);
 
         return Box::pin(handle_websocket_upgrade_request(socket, data, addr)).await;
     };
@@ -277,7 +277,7 @@ pub async fn handle_websocket_upgrade_request(
 }
 
 pub fn handle_websocket_upgrade_error(
-    error: &axum::Error,
+    error: &Error,
     data: WebsocketRequestData,
     addr: ConnectInfo<SocketAddr>,
 ) {

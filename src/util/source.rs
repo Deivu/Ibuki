@@ -1,6 +1,6 @@
 use super::errors::ResolverError;
 use crate::{
-    AvailableSources,
+    SOURCES,
     models::{ApiTrack, ApiTrackResult},
     source::{deezer::source::Deezer, http::Http, youtube::Youtube},
 };
@@ -34,7 +34,7 @@ pub trait Source {
 
 impl ApiTrack {
     pub async fn make_playable(self) -> Result<Track, ResolverError> {
-        let Some(client) = AvailableSources.get(&self.info.source_name) else {
+        let Some(client) = SOURCES.get(&self.info.source_name) else {
             return Err(ResolverError::InputNotSupported);
         };
 

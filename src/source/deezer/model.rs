@@ -1,6 +1,6 @@
 #![allow(dead_code, unused)]
 
-use crate::Config;
+use crate::CONFIG;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
@@ -364,7 +364,7 @@ impl Tokens {
     pub fn create_cookie(&self) -> String {
         format!(
             "arl={}; {}; {}",
-            Config
+            CONFIG
                 .deezer_config
                 .as_ref()
                 .expect("Unexpected Nullish Config")
