@@ -24,7 +24,7 @@ impl Read for SeekableSource {
             self.position += bytes_read;
             self.downloaded_bytes += bytes_read;
 
-            return Ok(self.downloaded_bytes);
+            return Ok(bytes_read);
         };
 
         if self.position < self.downloaded_bytes {
@@ -107,7 +107,7 @@ impl SeekableSource {
     pub fn new(source: Box<dyn MediaSource>) -> Self {
         let total_bytes = block_in_place(|| source.byte_len().map(|size| size as usize));
 
-        let downloaded = if let Some(bytes) = total_bytes.is_some() {
+        let downloaded = if let Some(bytes) = total_bytes {
             Vec::with_capacity(bytes)
         } else {
             // rust will reallocate if needed
