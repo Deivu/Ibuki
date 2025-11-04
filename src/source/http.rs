@@ -94,7 +94,7 @@ impl Source for Http {
 
         let stream = request.create_async().await?;
 
-        let seekable = SeekableSource::new(stream.input);
+        let seekable = SeekableSource::new_default(stream.input);
 
         let input = Input::Live(
             LiveInput::Raw(seekable.into_audio_stream(stream.hint)),
