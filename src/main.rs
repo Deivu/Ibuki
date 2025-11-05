@@ -10,7 +10,6 @@ use axum::{
 use bytesize::ByteSize;
 use cap::Cap;
 use dashmap::DashMap;
-use dlmalloc::GlobalDlmalloc;
 use dotenv::dotenv;
 use models::{ApiCpu, ApiMemory, ApiNodeMessage, ApiStats};
 use reqwest::{Client, ClientBuilder};
@@ -18,6 +17,7 @@ use songbird::{driver::Scheduler, id::UserId};
 use source::{deezer::source::Deezer, http::Http, youtube::Youtube};
 use std::sync::LazyLock;
 use std::{env::set_var, net::SocketAddr};
+use mimalloc::MiMalloc;
 use tokio::{
     main, net,
     task::JoinSet,
@@ -42,7 +42,7 @@ mod voice;
 mod ws;
 
 #[global_allocator]
-static ALLOCATOR: Cap<GlobalDlmalloc> = Cap::new(GlobalDlmalloc, usize::MAX);
+static ALLOCATOR: Cap<MiMalloc> = Cap::new(MiMalloc, usize::MAX);
 static CONFIG: LazyLock<Config> = LazyLock::new(Config::new);
 static SCHEDULER: LazyLock<Scheduler> = LazyLock::new(Scheduler::default);
 static CLIENTS: LazyLock<DashMap<UserId, WebsocketClient>> = LazyLock::new(DashMap::new);
