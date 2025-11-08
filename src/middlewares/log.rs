@@ -1,10 +1,9 @@
 use crate::util::errors::EndpointError;
-use axum::{
-    body::Body,
-    extract::{Path, Request},
-    http::Response,
-    middleware::Next,
-};
+use axum::body::Body;
+use axum::extract::Path;
+use axum::extract::Request;
+use axum::http::Response;
+use axum::middleware::Next;
 use std::collections::HashMap;
 
 #[tracing::instrument]

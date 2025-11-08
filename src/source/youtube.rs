@@ -1,25 +1,21 @@
-use crate::{
-    models::{ApiPlaylistInfo, ApiTrack, ApiTrackInfo, ApiTrackPlaylist, ApiTrackResult, Empty},
-    util::{
-        encoder::encode_base64,
-        errors::ResolverError,
-        seek::SeekableSource,
-        source::{Query, Source},
-    },
+use crate::models::{
+    ApiPlaylistInfo, ApiTrack, ApiTrackInfo, ApiTrackPlaylist, ApiTrackResult, Empty,
 };
+use crate::util::encoder::encode_base64;
+use crate::util::errors::ResolverError;
+use crate::util::seek::SeekableSource;
+use crate::util::source::Query;
+use crate::util::source::Source;
 use bytesize::ByteSize;
 use regex::Regex;
 use reqwest::Client;
-use rustypipe::{
-    client::{ClientType, RustyPipe},
-    model::{UrlTarget, VideoPlayer, YouTubeItem},
-    param::search_filter::{ItemType, SearchFilter},
-};
-use songbird::{
-    input::{Compose, HttpRequest, Input, LiveInput},
-    tracks::Track,
-};
-use std::{fs, sync::Arc};
+use rustypipe::client::{ClientType, RustyPipe};
+use rustypipe::model::{UrlTarget, VideoPlayer, YouTubeItem};
+use rustypipe::param::search_filter::{ItemType, SearchFilter};
+use songbird::input::{Compose, HttpRequest, Input, LiveInput};
+use songbird::tracks::Track;
+use std::fs;
+use std::sync::Arc;
 
 static PROTOCOL_REGEX: &str = "(?:http://|https://|)";
 static DOMAIN_REGEX: &str = "(?:www\\.|m\\.|music\\.|)youtube\\.com";

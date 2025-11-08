@@ -1,5 +1,5 @@
+use songbird::id::{ChannelId, GuildId, UserId};
 use std::num::NonZeroU64;
-use songbird::id::{GuildId, ChannelId, UserId};
 
 pub trait FromU64 {
     fn from_u64(id: u64) -> Self;

@@ -3,13 +3,15 @@
 // And I suck at dealing with binary
 // Thanks to @Takase (https://github.com/takase1121) for helping me with this
 //
-
-use crate::{
-    constants::TRACK_INFO_VERSIONED, models::ApiTrackInfo, util::errors::Base64DecodeError,
-};
-use base64::{Engine, prelude::BASE64_STANDARD};
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{Cursor, Read};
+use crate::constants::TRACK_INFO_VERSIONED;
+use crate::models::ApiTrackInfo;
+use crate::util::errors::Base64DecodeError;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
+use byteorder::BigEndian;
+use byteorder::ReadBytesExt;
+use std::io::Cursor;
+use std::io::Read;
 
 fn read_string(rdr: &mut Cursor<Vec<u8>>) -> Result<String, Base64DecodeError> {
     let len = rdr.read_u16::<BigEndian>()?;

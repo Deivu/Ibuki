@@ -1,9 +1,12 @@
-use crate::{
-    constants::TRACK_INFO_VERSIONED, models::ApiTrackInfo, util::errors::Base64EncodeError,
-};
-use base64::{Engine, prelude::BASE64_STANDARD};
-use byteorder::{BigEndian, WriteBytesExt};
-use std::io::{Cursor, Write};
+use crate::constants::TRACK_INFO_VERSIONED;
+use crate::models::ApiTrackInfo;
+use crate::util::errors::Base64EncodeError;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
+use byteorder::BigEndian;
+use byteorder::WriteBytesExt;
+use std::io::Cursor;
+use std::io::Write;
 
 fn write_string(wtr: &mut Cursor<Vec<u8>>, message: &str) -> Result<(), Base64EncodeError> {
     wtr.write_u16::<BigEndian>(message.len() as u16)?;

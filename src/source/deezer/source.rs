@@ -1,21 +1,23 @@
+use super::MEDIA_BASE;
+use super::PRIVATE_API_BASE;
+use super::PUBLIC_API_BASE;
+use super::model::Tokens;
 use super::model::{
     DeezerApiTrack, DeezerData, DeezerGetMedia, DeezerGetUrlBody, DeezerGetUrlMedia,
     DeezerMakePlayableBody, DeezerQuality, DeezerQualityFormat, InternalDeezerGetUserData,
     InternalDeezerResponse, InternalDeezerSongData,
 };
 use super::stream::DeezerHttpStream;
-use super::{MEDIA_BASE, PUBLIC_API_BASE};
-use super::{PRIVATE_API_BASE, model::Tokens};
 use crate::CONFIG;
+use crate::models::{ApiTrack, ApiTrackInfo, ApiTrackResult};
 use crate::util::encoder::encode_base64;
+use crate::util::errors::ResolverError;
 use crate::util::source::Query;
+use crate::util::source::Source;
 use crate::util::url::is_url;
-use crate::{
-    models::{ApiTrack, ApiTrackInfo, ApiTrackResult},
-    util::{errors::ResolverError, source::Source},
-};
 use regex::Regex;
-use reqwest::{Body, Client};
+use reqwest::Body;
+use reqwest::Client;
 use songbird::input::{Compose, HttpRequest, Input, LiveInput};
 use songbird::tracks::Track;
 use std::sync::Arc;

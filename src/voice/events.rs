@@ -1,4 +1,5 @@
-use super::{manager::CleanerSender, player::Player};
+use super::manager::CleanerSender;
+use super::player::Player;
 use crate::models::{
     ApiNodeMessage, ApiPlayer, ApiPlayerEvents, ApiPlayerUpdate, ApiTrack, ApiTrackEnd,
     ApiTrackStart, ApiWebSocketClosed,
@@ -8,17 +9,19 @@ use async_trait::async_trait;
 use axum::extract::ws::{Message, Utf8Bytes};
 use flume::WeakSender;
 use kameo::actor::ActorRef;
-use songbird::{
-    CoreEvent, Driver, Event, EventContext, EventHandler, TrackEvent,
-    events::context_data::DisconnectReason,
-    id::{GuildId, UserId},
-    model::CloseCode,
-    tracks::{TrackHandle, TrackState},
-};
-use std::sync::{
-    Arc, Weak,
-    atomic::{AtomicBool, Ordering},
-};
+use songbird::CoreEvent;
+use songbird::Driver;
+use songbird::Event;
+use songbird::EventContext;
+use songbird::EventHandler;
+use songbird::TrackEvent;
+use songbird::events::context_data::DisconnectReason;
+use songbird::id::{GuildId, UserId};
+use songbird::model::CloseCode;
+use songbird::tracks::{TrackHandle, TrackState};
+use std::sync::Arc;
+use std::sync::Weak;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 enum DataResult {

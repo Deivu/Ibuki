@@ -4,7 +4,7 @@ use crate::util::errors::PlayerManagerError;
 use crate::ws::client::WebSocketClient;
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
-use flume::{unbounded, Sender};
+use flume::{Sender, unbounded};
 use kameo::actor::ActorRef;
 use songbird::Config;
 use songbird::id::{GuildId, UserId};

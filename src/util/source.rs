@@ -1,9 +1,9 @@
 use super::errors::ResolverError;
-use crate::{
-    SOURCES,
-    models::{ApiTrack, ApiTrackResult},
-    source::{deezer::source::Deezer, http::Http, youtube::Youtube},
-};
+use crate::SOURCES;
+use crate::models::{ApiTrack, ApiTrackResult};
+use crate::source::deezer::source::Deezer;
+use crate::source::http::Http;
+use crate::source::youtube::Youtube;
 use reqwest::Client;
 use songbird::tracks::Track;
 
@@ -35,7 +35,10 @@ pub trait Source {
 impl ApiTrack {
     pub async fn make_playable(self) -> Result<Track, ResolverError> {
         let Some(client) = SOURCES.get(&self.info.source_name) else {
-            return Err(ResolverError::Custom(format!("Source {} not found / supported", self.info.source_name)));
+            return Err(ResolverError::Custom(format!(
+                "Source {} not found / supported",
+                self.info.source_name
+            )));
         };
 
         match &*client {

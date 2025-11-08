@@ -1,23 +1,27 @@
-use super::{events::PlayerEvent, manager::CleanerSender};
+use super::events::PlayerEvent;
+use super::manager::CleanerSender;
+use crate::CONFIG;
+use crate::SCHEDULER;
+use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty};
+use crate::util::decoder::decode_base64;
+use crate::util::errors::PlayerError;
 use crate::ws::client::WebSocketClient;
-use crate::{
-    CONFIG, SCHEDULER,
-    models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty},
-    util::{decoder::decode_base64, errors::PlayerError},
-};
 use flume::WeakSender;
 use kameo::actor::ActorRef;
-use songbird::{
-    Config as SongbirdConfig, ConnectionInfo, CoreEvent, Driver, Event, TrackEvent,
-    driver::Bitrate,
-    id::{GuildId, UserId},
-    tracks::{TrackHandle, TrackState},
-};
-use std::{
-    sync::{Arc, atomic::AtomicBool},
-    time::{Duration, Instant},
-};
-use tokio::{sync::Mutex, task};
+use songbird::Config as SongbirdConfig;
+use songbird::ConnectionInfo;
+use songbird::CoreEvent;
+use songbird::Driver;
+use songbird::Event;
+use songbird::TrackEvent;
+use songbird::driver::Bitrate;
+use songbird::id::{GuildId, UserId};
+use songbird::tracks::{TrackHandle, TrackState};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
+use tokio::task;
 
 #[derive(Clone)]
 pub struct Player {

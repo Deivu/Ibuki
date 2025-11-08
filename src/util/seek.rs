@@ -1,9 +1,8 @@
 use songbird::input::AudioStream;
-use std::{
-    cmp::min,
-    io::{Error as IoError, ErrorKind, Read, Result as IoResult, Seek, SeekFrom},
-};
-use symphonia::core::{io::MediaSource, probe::Hint};
+use std::cmp::min;
+use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
+use symphonia::core::io::MediaSource;
+use symphonia::core::probe::Hint;
 use tokio::task::block_in_place;
 
 static CHUNK_SIZE: usize = 1024;

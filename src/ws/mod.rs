@@ -1,3 +1,3 @@
 pub mod client;
-mod sender;
 mod receiver;
+mod sender;
