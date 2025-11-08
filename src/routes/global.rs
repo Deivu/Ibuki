@@ -1,4 +1,4 @@
-use crate::util::converter::numbers::IbukiUserId;
+use crate::util::converter::numbers::FromU64;
 use crate::util::errors::EndpointError;
 use crate::ws::client::{
     WebsocketRequestData, handle_websocket_upgrade_error, handle_websocket_upgrade_request,
@@ -8,7 +8,6 @@ use axum::extract::{ConnectInfo, WebSocketUpgrade};
 use axum::http::{HeaderMap, Response};
 use songbird::id::UserId;
 use std::net::SocketAddr;
-use std::num::NonZeroU64;
 
 pub async fn landing() -> String {
     String::from("Hello World")
@@ -33,7 +32,7 @@ pub async fn ws(
 
     let request = WebsocketRequestData {
         user_agent: user_agent.into(),
-        user_id: UserId::from(NonZeroU64::try_from(IbukiUserId(user_id))?),
+        user_id: UserId::from_u64(user_id),
         session_id: headers
             .get("Session-Id")
             .and_then(|data| data.to_str().map_or(None, |data| data.parse::<u128>().ok())),

@@ -3,9 +3,11 @@ use crate::models::{
     ApiNodeMessage, ApiPlayer, ApiPlayerEvents, ApiPlayerUpdate, ApiTrack, ApiTrackEnd,
     ApiTrackStart, ApiWebSocketClosed,
 };
+use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use async_trait::async_trait;
 use axum::extract::ws::{Message, Utf8Bytes};
 use flume::WeakSender;
+use kameo::actor::ActorRef;
 use songbird::{
     CoreEvent, Driver, Event, EventContext, EventHandler, TrackEvent,
     events::context_data::DisconnectReason,
@@ -17,9 +19,7 @@ use std::sync::{
     Arc, Weak,
     atomic::{AtomicBool, Ordering},
 };
-use kameo::actor::ActorRef;
 use tokio::sync::Mutex;
-use crate::ws::client::{SendMessageWebsocket, WebSocketClient};
 
 enum DataResult {
     // probably usable in future
@@ -112,7 +112,10 @@ impl PlayerEvent {
     }
 
     pub async fn send_to_websocket(&self, message: Message) {
-        self.websocket.tell(SendMessageWebsocket(message)).await.ok();
+        self.websocket
+            .tell(SendConnectionMessage { message })
+            .await
+            .ok();
     }
 }
 

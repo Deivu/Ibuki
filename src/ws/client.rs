@@ -7,11 +7,11 @@ use crate::ws::receiver::{ReceiverActor, ReceiverActorArgs};
 use crate::ws::sender::{SendToWebsocket, SenderActor};
 use axum::Error;
 use axum::extract::ConnectInfo;
-use axum::extract::ws::{Message as WsMessage, WebSocket};
+use axum::extract::ws::{CloseFrame, Message as WsMessage, WebSocket};
 use futures::StreamExt;
-use kameo::Actor;
-use kameo::actor::ActorRef;
-use kameo::message::{Context, Message as KameoMessage};
+use kameo::actor::{ActorRef, Spawn};
+use kameo::message::Context;
+use kameo::{Actor, Reply, messages};
 use songbird::id::{GuildId, UserId};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -20,34 +20,18 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use uuid::Uuid;
 
-pub struct ConnectWebsocket {
-    socket: WebSocket,
-    session_id: Option<u128>,
-}
-
-pub struct DisconnectWebsocket;
-
-pub struct DestroyWebsocket;
-
-pub struct SendMessageWebsocket(pub WsMessage);
-
-pub struct GetSessionId;
-
-pub struct CreatePlayerFromWebsocket(pub CreatePlayerOptions);
-
-pub struct GetPlayerFromWebsocket(pub GuildId);
-
-pub struct DisconnectPlayerFromWebsocket(pub GuildId);
-
-pub struct DisconnectAllPlayersFromWebsocket;
-
-pub struct UpdateResumeAndTimeout(pub bool, pub u32);
-
 #[derive(Clone)]
 pub struct WebsocketRequestData {
     pub user_agent: String,
     pub user_id: UserId,
     pub session_id: Option<u128>,
+}
+
+#[derive(Reply, Clone, Debug)]
+pub struct WebSocketClientData {
+    pub session_id: u128,
+    pub resume: bool,
+    pub timeout: u32,
 }
 
 pub struct WebSocketClient {
@@ -56,10 +40,20 @@ pub struct WebSocketClient {
     sender: Option<ActorRef<SenderActor>>,
     receiver: Option<ActorRef<ReceiverActor>>,
     player_manager: PlayerManager,
-    message_buffer: VecDeque<WsMessage>,
+    message_queue: VecDeque<WsMessage>,
     resume: Arc<AtomicBool>,
     timeout: Arc<AtomicU32>,
     dropped: Arc<AtomicBool>,
+}
+
+impl From<&WebSocketClient> for WebSocketClientData {
+    fn from(value: &WebSocketClient) -> Self {
+        Self {
+            session_id: value.session_id,
+            resume: value.resume.load(Ordering::Acquire),
+            timeout: value.timeout.load(Ordering::Acquire),
+        }
+    }
 }
 
 impl Actor for WebSocketClient {
@@ -76,7 +70,7 @@ impl Actor for WebSocketClient {
             sender: None,
             receiver: None,
             player_manager: PlayerManager::new(actor_ref.clone(), user_id),
-            message_buffer: VecDeque::new(),
+            message_queue: VecDeque::new(),
             resume: Arc::new(AtomicBool::new(false)),
             timeout: Arc::new(AtomicU32::new(30)),
             // todo!() im not sure if i want this or i can just link the receiver actor to this actor so if that dies, so is this
@@ -85,35 +79,36 @@ impl Actor for WebSocketClient {
     }
 }
 
-impl KameoMessage<ConnectWebsocket> for WebSocketClient {
-    type Reply = bool;
+#[messages]
+impl WebSocketClient {
+    #[message]
+    pub fn get_websocket_info(&self) -> WebSocketClientData {
+        self.into()
+    }
 
-    async fn handle(
+    #[message(ctx)]
+    pub async fn establish_connection(
         &mut self,
-        msg: ConnectWebsocket,
-        ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        if let Some(sender) = self.sender.take() {
-            sender.kill();
-        }
-        if let Some(receiver) = self.receiver.take() {
-            receiver.kill();
-        }
+        ctx: &mut Context<Self, bool>,
+        socket: WebSocket,
+        session_id: Option<u128>,
+    ) -> bool {
+        self.cleanup();
 
-        let (sink, stream) = msg.socket.split();
+        let (sink, stream) = socket.split();
 
         let resumed = self.resume.load(Ordering::Acquire)
-            && msg.session_id.filter(|id| *id == self.session_id).is_some();
+            && session_id.filter(|id| *id == self.session_id).is_some();
 
         if resumed {
             tracing::info!(
                 "WebSocket connection resumed [SessionId: {}], replaying {} messages",
                 self.session_id,
-                self.message_buffer.len()
+                self.message_queue.len()
             );
         } else {
-            let queue_length = self.message_buffer.len();
-            self.message_buffer.clear();
+            let queue_length = self.message_queue.len();
+            self.message_queue.clear();
             self.session_id = Uuid::new_v4().as_u128();
 
             // todo!() disconnect_all and clear refactor soon for clearer code
@@ -136,15 +131,14 @@ impl KameoMessage<ConnectWebsocket> for WebSocketClient {
         self.sender = Some(sender_actor.clone());
 
         if resumed {
-            for buffered_msg in self.message_buffer.drain(..) {
+            for buffered_msg in self.message_queue.drain(..) {
                 sender_actor.tell(SendToWebsocket(buffered_msg)).await.ok();
             }
         }
 
-        let client_ref = ctx.actor_ref();
         let receiver_actor = ReceiverActor::spawn(ReceiverActorArgs {
             stream,
-            client_ref: client_ref.clone(),
+            client_ref: ctx.actor_ref().clone(),
             dropped: self.dropped.clone(),
             user_id: self.user_id.clone(),
             players: self.player_manager.players.clone(),
@@ -174,44 +168,64 @@ impl KameoMessage<ConnectWebsocket> for WebSocketClient {
 
         resumed
     }
-}
 
-impl KameoMessage<SendMessageWebsocket> for WebSocketClient {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        msg: SendMessageWebsocket,
-        _: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
+    #[message]
+    pub async fn cleanup_connection(&mut self) {
         if let Some(sender) = &self.sender {
-            let Err(error) = sender.tell(SendToWebsocket(msg.0)).await else {
+            let close_msg = WsMessage::Close(Some(CloseFrame {
+                code: 1000,
+                reason: "Invoked Disconnect".into(),
+            }));
+            sender.ask(SendToWebsocket(close_msg)).await.ok();
+        }
+        self.cleanup();
+        self.terminate();
+    }
+
+    #[message]
+    pub async fn send_connection_message(&mut self, message: WsMessage) {
+        if let Some(sender) = &self.sender {
+            let Err(error) = sender.tell(SendToWebsocket(message)).await else {
                 return;
             };
             tracing::warn!("Failed to send to sender task due to {:?}", error);
         } else {
-            self.message_buffer.push_back(msg.0);
+            self.message_queue.push_back(message);
             tracing::debug!("Sender task is disconnected, buffering...");
         }
     }
-}
 
-impl KameoMessage<DisconnectWebsocket> for WebSocketClient {
-    type Reply = ();
+    #[message]
+    pub fn update_websocket(&mut self, resuming: bool, timeout: u32) -> WebSocketClientData {
+        self.resume.store(resuming, Ordering::Release);
+        self.timeout.store(timeout, Ordering::Release);
+        (self as &WebSocketClient).into()
+    }
 
-    async fn handle(
-        &mut self,
-        _: DisconnectWebsocket,
-        _: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        if let Some(sender) = &self.sender {
-            let close_msg = WsMessage::Close(Some(axum::extract::ws::CloseFrame {
-                code: 1000,
-                reason: "Invoked Disconnect".into(),
-            }));
-            sender.tell(SendToWebsocket(close_msg)).await.ok();
-        }
+    #[message]
+    pub async fn create_player(
+        &self,
+        options: CreatePlayerOptions,
+    ) -> Result<(), PlayerManagerError> {
+        self.player_manager.create_player(options).await.map(|_| ())
+    }
 
+    #[message]
+    pub async fn get_player(&self, guild_id: GuildId) -> Option<Player> {
+        self.player_manager.get_player(&guild_id).map(|p| p.clone())
+    }
+
+    #[message]
+    pub async fn disconnect_player(&self, guild_id: GuildId) {
+        self.player_manager.disconnect_player(&guild_id).await;
+    }
+
+    #[message]
+    pub async fn disconnect_all(&self) {
+        self.player_manager.disconnect_all();
+    }
+
+    fn cleanup(&mut self) {
         if let Some(sender) = self.sender.take() {
             sender.kill();
         }
@@ -219,95 +233,10 @@ impl KameoMessage<DisconnectWebsocket> for WebSocketClient {
             receiver.kill();
         }
     }
-}
 
-impl KameoMessage<DestroyWebsocket> for WebSocketClient {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        _: DestroyWebsocket,
-        _: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        if let Some(sender) = self.sender.take() {
-            sender.kill();
-        }
-        if let Some(receiver) = self.receiver.take() {
-            receiver.kill();
-        }
-
-        // todo!() disconnect_all and clear refactor soon for clearer code
+    fn terminate(&mut self) {
+        self.dropped.store(false, Ordering::Release);
         self.player_manager.disconnect_all();
-    }
-}
-
-impl KameoMessage<GetSessionId> for WebSocketClient {
-    type Reply = u128;
-
-    async fn handle(&mut self, _: GetSessionId, _: &mut Context<Self, Self::Reply>) -> Self::Reply {
-        self.session_id
-    }
-}
-
-impl KameoMessage<CreatePlayerFromWebsocket> for WebSocketClient {
-    type Reply = Result<(), PlayerManagerError>;
-
-    async fn handle(
-        &mut self,
-        msg: CreatePlayerFromWebsocket,
-        _: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.player_manager.create_player(msg.0).await.map(|_| ())
-    }
-}
-
-impl KameoMessage<GetPlayerFromWebsocket> for WebSocketClient {
-    type Reply = Option<Player>;
-
-    async fn handle(
-        &mut self,
-        msg: GetPlayerFromWebsocket,
-        _: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.player_manager
-            .get_player(&msg.0)
-            .map(|player| player.clone())
-    }
-}
-
-impl KameoMessage<DisconnectPlayerFromWebsocket> for WebSocketClient {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        msg: DisconnectPlayerFromWebsocket,
-        _: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.player_manager.disconnect_player(&msg.0).await;
-    }
-}
-
-impl KameoMessage<DisconnectAllPlayersFromWebsocket> for WebSocketClient {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        _: DisconnectAllPlayersFromWebsocket,
-        _: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.player_manager.disconnect_all();
-    }
-}
-
-impl KameoMessage<UpdateResumeAndTimeout> for WebSocketClient {
-    type Reply = ();
-    async fn handle(
-        &mut self,
-        msg: UpdateResumeAndTimeout,
-        _: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.resume.swap(msg.0, Ordering::Release);
-        self.timeout.swap(msg.1, Ordering::Release);
     }
 }
 
@@ -325,7 +254,7 @@ pub async fn handle_websocket_upgrade_request(
     };
 
     match client
-        .ask(ConnectWebsocket {
+        .ask(EstablishConnection {
             socket,
             session_id: data.session_id,
         })

@@ -1,6 +1,6 @@
 #![recursion_limit = "256"]
 
-use crate::ws::client::{SendMessageWebsocket, WebSocketClient};
+use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use axum::{Router, middleware::from_fn, routing, serve};
 use bytesize::ByteSize;
 use cap::Cap;
@@ -168,9 +168,9 @@ async fn main() {
             let set = CLIENTS
                 .iter()
                 .map(|client| {
-                    let clone = serialized.clone();
+                    let message = serialized.clone();
                     async move {
-                        let _ = client.tell(SendMessageWebsocket(clone.into()));
+                        let _ = client.tell(SendConnectionMessage { message: message.into() });
                     }
                 })
                 .collect::<JoinSet<()>>();

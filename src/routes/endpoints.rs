@@ -4,15 +4,13 @@ use super::{
 use crate::models::{
     ApiPlayerOptions, ApiSessionBody, ApiSessionInfo, ApiTrack, ApiTrackResult, Empty,
 };
-use crate::util::converter::numbers::IbukiGuildId;
+use crate::util::converter::numbers::FromU64;
 use crate::util::decoder::decode_base64;
 use crate::util::errors::EndpointError;
 use crate::util::source::{Source, Sources};
 use crate::voice::manager::CreatePlayerOptions;
-use crate::voice::player::Player;
 use crate::ws::client::{
-    CreatePlayerFromWebsocket, DisconnectPlayerFromWebsocket, GetPlayerFromWebsocket, GetSessionId,
-    UpdateResumeAndTimeout, WebSocketClient,
+    CreatePlayer, DisconnectPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
 };
 use crate::{CLIENTS, SOURCES};
 use axum::Json;
@@ -22,33 +20,20 @@ use dashmap::mapref::multiple::RefMulti;
 use kameo::actor::ActorRef;
 use serde_json::Value;
 use songbird::id::{GuildId, UserId};
-use std::num::NonZeroU64;
 use std::sync::atomic::Ordering;
 
 async fn get_client(
     session_id: u128,
 ) -> Option<RefMulti<'static, UserId, ActorRef<WebSocketClient>>> {
     for client in CLIENTS.iter() {
-        let Some(client_session_id) = client.ask(GetSessionId).await.ok() else {
+        let Some(data) = client.ask(GetWebsocketInfo).await.ok() else {
             continue;
         };
-        if session_id == client_session_id {
+        if session_id == data.session_id {
             return Some(client);
         }
     }
     None
-}
-
-async fn get_player_internal(
-    client_ref: &RefMulti<'static, UserId, ActorRef<WebSocketClient>>,
-    guild_id: u64,
-) -> Result<Player, EndpointError> {
-    let id = GuildId::from(NonZeroU64::try_from(IbukiGuildId(guild_id))?);
-    client_ref
-        .ask(GetPlayerFromWebsocket(id))
-        .await
-        .map_err(|_| EndpointError::NotFound)?
-        .ok_or(EndpointError::NotFound)
 }
 
 pub async fn get_player(
@@ -61,7 +46,12 @@ pub async fn get_player(
         .await
         .ok_or(EndpointError::NotFound)?;
 
-    let player = get_player_internal(&client, guild_id).await?;
+    let player = client
+        .ask(GetPlayer {
+            guild_id: GuildId::from_u64(guild_id),
+        })
+        .await?
+        .ok_or(EndpointError::NotFound)?;
 
     let string = serde_json::to_string_pretty(&*player.data.lock().await)?;
 
@@ -80,22 +70,32 @@ pub async fn update_player(
         .await
         .ok_or(EndpointError::NotFound)?;
 
-    if get_player_internal(&client, guild_id).await.is_err() && update_player.voice.is_none() {
+    let option_player = client
+        .ask(GetPlayer {
+            guild_id: GuildId::from_u64(guild_id),
+        })
+        .await?;
+
+    if option_player.is_none() && update_player.voice.is_none() {
         return Err(EndpointError::NotFound);
     }
 
     if let Some(server_update) = update_player.voice {
-        let guild_id = GuildId::from(NonZeroU64::try_from(IbukiGuildId(guild_id))?);
         let options = CreatePlayerOptions {
-            guild_id,
+            guild_id: GuildId::from_u64(guild_id),
             server_update,
             config: None,
         };
 
-        client.ask(CreatePlayerFromWebsocket(options)).await?;
+        client.ask(CreatePlayer { options }).await?;
     }
 
-    let player = get_player_internal(&client, guild_id).await?;
+    let player = client
+        .ask(GetPlayer {
+            guild_id: GuildId::from_u64(guild_id),
+        })
+        .await?
+        .ok_or(EndpointError::NotFound)?;
 
     let mut stopped = false;
 
@@ -144,9 +144,9 @@ pub async fn destroy_player(
         .ok_or(EndpointError::NotFound)?;
 
     client
-        .ask(DisconnectPlayerFromWebsocket(GuildId::from(
-            NonZeroU64::try_from(IbukiGuildId(guild_id))?,
-        )))
+        .ask(DisconnectPlayer {
+            guild_id: GuildId::from_u64(guild_id),
+        })
         .await?;
 
     Ok(Response::new(Body::from(())))
@@ -161,16 +161,16 @@ pub async fn update_session(
         .await
         .ok_or(EndpointError::NotFound)?;
 
-    client
-        .ask(UpdateResumeAndTimeout(
-            update_session.resuming,
-            update_session.timeout,
-        ))
+    let data = client
+        .ask(UpdateWebsocket {
+            resuming: update_session.resuming,
+            timeout: update_session.timeout,
+        })
         .await?;
 
     let info = ApiSessionInfo {
-        resuming_key: client.ask(GetSessionId).await?,
-        timeout: update_session.timeout as u16,
+        resuming_key: data.session_id,
+        timeout: data.timeout as u16,
     };
 
     let string = serde_json::to_string_pretty(&info)?;

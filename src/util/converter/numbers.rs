@@ -1,22 +1,18 @@
-use super::super::errors::ConverterError;
 use std::num::NonZeroU64;
+use songbird::id::{GuildId, ChannelId, UserId};
 
-pub struct IbukiGuildId(pub u64);
-
-impl TryFrom<IbukiGuildId> for NonZeroU64 {
-    type Error = ConverterError;
-
-    fn try_from(value: IbukiGuildId) -> Result<Self, Self::Error> {
-        NonZeroU64::new(value.0).ok_or(ConverterError::NonZeroU64(value.0))
-    }
+pub trait FromU64 {
+    fn from_u64(id: u64) -> Self;
 }
 
-pub struct IbukiUserId(pub u64);
-
-impl TryFrom<IbukiUserId> for NonZeroU64 {
-    type Error = ConverterError;
-
-    fn try_from(value: IbukiUserId) -> Result<Self, Self::Error> {
-        NonZeroU64::new(value.0).ok_or(ConverterError::NonZeroU64(value.0))
-    }
+macro_rules! impl_from_u64 {
+    ($($t:ty),*) => {
+        $(impl FromU64 for $t {
+            fn from_u64(id: u64) -> Self {
+                Self::from(NonZeroU64::new(id).expect("ID cannot be zero"))
+            }
+        })*
+    };
 }
+
+impl_from_u64!(GuildId, UserId, ChannelId);
