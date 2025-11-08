@@ -27,6 +27,7 @@ blowfish = "^0.9.1"
 cbc = "^0.1.2"
 rand_agents = "^1.0.0"
 mimalloc = "0.1.48"
+kameo = "0.17.2"
 
 [dependencies.rustypipe]
 version = "^0.11.4"

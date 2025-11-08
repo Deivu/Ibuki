@@ -1,6 +1,7 @@
 use axum::body::Body;
 use axum::http::{self, StatusCode};
 use axum::response::{IntoResponse, Response};
+use kameo::prelude::SendError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -23,10 +24,12 @@ pub enum SeekableInitError {
 
 #[derive(Error, Debug)]
 pub enum ResolverError {
-    #[error("Important Data Missing: {0}")]
+    #[error("Important data missing: {0}")]
     MissingRequiredData(&'static str),
     #[error("Response received is not ok [{0}]")]
     FailedStatusCode(String),
+    #[error("{0}")]
+    Custom(String),
     #[error(transparent)]
     SeekableInit(#[from] SeekableInitError),
     #[error(transparent)]
@@ -41,8 +44,6 @@ pub enum ResolverError {
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
     ToStr(#[from] reqwest::header::ToStrError),
-    #[error("The track provided is not supported")]
-    InputNotSupported,
 }
 
 #[derive(Error, Debug)]
@@ -103,6 +104,8 @@ pub enum EndpointError {
     MissingOption(&'static str),
     #[error("Unprocessable Entity due to: {0}")]
     UnprocessableEntity(&'static str),
+    #[error("Task error: {0}")]
+    ActorError(String),
     #[error(transparent)]
     JsonError(#[from] serde_json::Error),
     #[error(transparent)]
@@ -121,6 +124,15 @@ pub enum EndpointError {
     PlayerManager(#[from] PlayerManagerError),
     #[error(transparent)]
     PlayerError(#[from] PlayerError),
+}
+
+impl<M, E> From<SendError<M, E>> for EndpointError
+where
+    E: std::fmt::Debug,
+{
+    fn from(error: SendError<M, E>) -> Self {
+        Self::ActorError(format!("{:?}", error))
+    }
 }
 
 impl IntoResponse for EndpointError {
@@ -169,6 +181,9 @@ impl IntoResponse for EndpointError {
             ),
             EndpointError::PlayerError(player_error) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, player_error.to_string())
+            }
+            EndpointError::ActorError(actor_error) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, actor_error.to_string())
             }
             EndpointError::Unauthorized => (StatusCode::FORBIDDEN, self.to_string()),
         };

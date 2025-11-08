@@ -8,14 +8,48 @@ use crate::util::converter::numbers::IbukiGuildId;
 use crate::util::decoder::decode_base64;
 use crate::util::errors::EndpointError;
 use crate::util::source::{Source, Sources};
+use crate::voice::manager::CreatePlayerOptions;
+use crate::voice::player::Player;
+use crate::ws::client::{
+    CreatePlayerFromWebsocket, DisconnectPlayerFromWebsocket, GetPlayerFromWebsocket, GetSessionId,
+    UpdateResumeAndTimeout, WebSocketClient,
+};
 use crate::{CLIENTS, SOURCES};
 use axum::Json;
 use axum::extract::Path;
 use axum::{body::Body, extract::Query, response::Response};
+use dashmap::mapref::multiple::RefMulti;
+use kameo::actor::ActorRef;
 use serde_json::Value;
-use songbird::id::GuildId;
+use songbird::id::{GuildId, UserId};
 use std::num::NonZeroU64;
 use std::sync::atomic::Ordering;
+
+async fn get_client(
+    session_id: u128,
+) -> Option<RefMulti<'static, UserId, ActorRef<WebSocketClient>>> {
+    for client in CLIENTS.iter() {
+        let Some(client_session_id) = client.ask(GetSessionId).await.ok() else {
+            continue;
+        };
+        if session_id == client_session_id {
+            return Some(client);
+        }
+    }
+    None
+}
+
+async fn get_player_internal(
+    client_ref: &RefMulti<'static, UserId, ActorRef<WebSocketClient>>,
+    guild_id: u64,
+) -> Result<Player, EndpointError> {
+    let id = GuildId::from(NonZeroU64::try_from(IbukiGuildId(guild_id))?);
+    client_ref
+        .ask(GetPlayerFromWebsocket(id))
+        .await
+        .map_err(|_| EndpointError::NotFound)?
+        .ok_or(EndpointError::NotFound)
+}
 
 pub async fn get_player(
     Path(PlayerMethodsPath {
@@ -23,17 +57,11 @@ pub async fn get_player(
         guild_id,
     }): Path<PlayerMethodsPath>,
 ) -> Result<Response<Body>, EndpointError> {
-    let client = CLIENTS
-        .iter()
-        .find(|client| client.session_id == session_id)
+    let client = get_client(session_id)
+        .await
         .ok_or(EndpointError::NotFound)?;
 
-    let id = GuildId::from(NonZeroU64::try_from(IbukiGuildId(guild_id))?);
-
-    let player = client
-        .player_manager
-        .get_player(&id)
-        .ok_or(EndpointError::NotFound)?;
+    let player = get_player_internal(&client, guild_id).await?;
 
     let string = serde_json::to_string_pretty(&*player.data.lock().await)?;
 
@@ -48,28 +76,26 @@ pub async fn update_player(
     }): Path<PlayerMethodsPath>,
     Json(update_player): Json<ApiPlayerOptions>,
 ) -> Result<Response<Body>, EndpointError> {
-    let client = CLIENTS
-        .iter()
-        .find(|client| client.session_id == session_id)
+    let client = get_client(session_id)
+        .await
         .ok_or(EndpointError::NotFound)?;
 
-    let id = GuildId::from(NonZeroU64::try_from(IbukiGuildId(guild_id))?);
-
-    if client.player_manager.get_player(&id).is_none() && update_player.voice.is_none() {
+    if get_player_internal(&client, guild_id).await.is_err() && update_player.voice.is_none() {
         return Err(EndpointError::NotFound);
     }
 
-    if let Some(update_voice) = update_player.voice {
-        client
-            .player_manager
-            .create_player(id, update_voice, None)
-            .await?;
+    if let Some(server_update) = update_player.voice {
+        let guild_id = GuildId::from(NonZeroU64::try_from(IbukiGuildId(guild_id))?);
+        let options = CreatePlayerOptions {
+            guild_id,
+            server_update,
+            config: None,
+        };
+
+        client.ask(CreatePlayerFromWebsocket(options)).await?;
     }
 
-    let player = client
-        .player_manager
-        .get_player(&id)
-        .ok_or(EndpointError::NotFound)?;
+    let player = get_player_internal(&client, guild_id).await?;
 
     let mut stopped = false;
 
@@ -113,14 +139,15 @@ pub async fn destroy_player(
         guild_id,
     }): Path<PlayerMethodsPath>,
 ) -> Result<Response<Body>, EndpointError> {
-    let client = CLIENTS
-        .iter()
-        .find(|client| client.session_id == session_id)
+    let client = get_client(session_id)
+        .await
         .ok_or(EndpointError::NotFound)?;
 
-    let id = GuildId::from(NonZeroU64::try_from(IbukiGuildId(guild_id))?);
-
-    client.player_manager.disconnect_player(&id).await;
+    client
+        .ask(DisconnectPlayerFromWebsocket(GuildId::from(
+            NonZeroU64::try_from(IbukiGuildId(guild_id))?,
+        )))
+        .await?;
 
     Ok(Response::new(Body::from(())))
 }
@@ -130,17 +157,20 @@ pub async fn update_session(
     Path(SessionMethodsPath { session_id }): Path<SessionMethodsPath>,
     Json(update_session): Json<ApiSessionBody>,
 ) -> Result<Response<Body>, EndpointError> {
-    let mut client = CLIENTS
-        .iter_mut()
-        .find(|client| client.session_id == session_id)
+    let client = get_client(session_id)
+        .await
         .ok_or(EndpointError::NotFound)?;
 
-    client.resume = update_session.resuming;
-    client.timeout = update_session.timeout as u16;
+    client
+        .ask(UpdateResumeAndTimeout(
+            update_session.resuming,
+            update_session.timeout,
+        ))
+        .await?;
 
     let info = ApiSessionInfo {
-        resuming_key: client.session_id,
-        timeout: client.timeout,
+        resuming_key: client.ask(GetSessionId).await?,
+        timeout: update_session.timeout as u16,
     };
 
     let string = serde_json::to_string_pretty(&info)?;
@@ -165,7 +195,7 @@ pub async fn decode(query: Query<DecodeQueryString>) -> Result<Response<Body>, E
 #[tracing::instrument]
 pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, EndpointError> {
     let track: ApiTrackResult = {
-        let mut result = ApiTrackResult::Empty(None);
+        let mut result: Option<ApiTrackResult> = None;
 
         for source in SOURCES.iter() {
             match source.value() {
@@ -192,12 +222,12 @@ pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, E
                 }
             }
 
-            if result != ApiTrackResult::Empty(None) {
+            if result.is_some() {
                 break;
             }
         }
 
-        result
+        result.unwrap_or(ApiTrackResult::Empty(None))
     };
 
     let string = serde_json::to_string_pretty(&track)?;

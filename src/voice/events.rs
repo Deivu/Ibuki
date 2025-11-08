@@ -17,7 +17,9 @@ use std::sync::{
     Arc, Weak,
     atomic::{AtomicBool, Ordering},
 };
+use kameo::actor::ActorRef;
 use tokio::sync::Mutex;
+use crate::ws::client::{SendMessageWebsocket, WebSocketClient};
 
 enum DataResult {
     // probably usable in future
@@ -35,7 +37,7 @@ pub struct PlayerEvent {
     pub fired: Arc<AtomicBool>,
     pub active: Weak<AtomicBool>,
     pub data: Weak<Mutex<ApiPlayer>>,
-    pub websocket: WeakSender<Message>,
+    pub websocket: ActorRef<WebSocketClient>,
     pub cleaner: WeakSender<CleanerSender>,
     pub driver: Weak<Mutex<Option<Driver>>>,
     pub handle: Weak<Mutex<Option<TrackHandle>>>,
@@ -110,16 +112,7 @@ impl PlayerEvent {
     }
 
     pub async fn send_to_websocket(&self, message: Message) {
-        let Some(sender) = self.websocket.upgrade() else {
-            tracing::warn!(
-                "Player with [GuildId: {}] [UserId: {}] tried to send on a websocket message on a websocket channel that don\'t exist",
-                self.guild_id,
-                self.user_id
-            );
-            return;
-        };
-
-        sender.send_async(message).await.ok();
+        self.websocket.tell(SendMessageWebsocket(message)).await.ok();
     }
 }
 

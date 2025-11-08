@@ -65,9 +65,9 @@ impl Source for Deezer {
         Some(Query::Url(query.to_string()))
     }
 
-    async fn resolve(&self, query: Query) -> Result<ApiTrackResult, ResolverError> {
+    async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
         match query {
-            Query::Url(_) => todo!(),
+            Query::Url(_) => Ok(None),
             Query::Search(input) => {
                 let mut data: Option<Vec<DeezerApiTrack>> = None;
 
@@ -85,7 +85,7 @@ impl Source for Deezer {
                     let response = self.client.execute(request).await?;
 
                     if !response.status().is_success() {
-                        return Ok(ApiTrackResult::Empty(None));
+                        return Ok(None);
                     }
 
                     let tracks = response.json::<DeezerData<Vec<DeezerApiTrack>>>().await?;
@@ -102,14 +102,14 @@ impl Source for Deezer {
                     let response = self.client.execute(request).await?;
 
                     if !response.status().is_success() {
-                        return Ok(ApiTrackResult::Empty(None));
+                        return Ok(None);
                     }
 
                     let _ = data.insert(vec![response.json::<DeezerApiTrack>().await?]);
                 }
 
                 let Some(api_tracks) = data else {
-                    return Ok(ApiTrackResult::Empty(None));
+                    return Ok(None);
                 };
 
                 let tracks = api_tracks
@@ -138,7 +138,7 @@ impl Source for Deezer {
                     })
                     .collect::<Vec<ApiTrack>>();
 
-                Ok(ApiTrackResult::Search(tracks))
+                Ok(Some(ApiTrackResult::Search(tracks)))
             }
         }
     }

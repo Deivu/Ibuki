@@ -1,10 +1,11 @@
 use super::player::Player;
 use crate::models::ApiVoiceData;
 use crate::util::errors::PlayerManagerError;
-use axum::extract::ws::Message;
+use crate::ws::client::WebSocketClient;
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
-use flume::{Sender, WeakSender, unbounded};
+use flume::{unbounded, Sender};
+use kameo::actor::ActorRef;
 use songbird::Config;
 use songbird::id::{GuildId, UserId};
 use std::sync::Arc;
@@ -14,15 +15,21 @@ pub enum CleanerSender {
     Destroy,
 }
 
+pub struct CreatePlayerOptions {
+    pub guild_id: GuildId,
+    pub server_update: ApiVoiceData,
+    pub config: Option<Config>,
+}
+
 pub struct PlayerManager {
     pub user_id: UserId,
     pub players: Arc<DashMap<GuildId, Player>>,
     cleaner: Sender<CleanerSender>,
-    websocket: WeakSender<Message>,
+    websocket: ActorRef<WebSocketClient>,
 }
 
 impl PlayerManager {
-    pub fn new(websocket: WeakSender<Message>, user_id: UserId) -> Self {
+    pub fn new(websocket: ActorRef<WebSocketClient>, user_id: UserId) -> Self {
         let (cleaner, listener) = unbounded::<CleanerSender>();
 
         let manager = Self {
@@ -53,30 +60,30 @@ impl PlayerManager {
 
     pub async fn create_player(
         &self,
-        guild_id: GuildId,
-        server_update: ApiVoiceData,
-        config: Option<Config>,
+        options: CreatePlayerOptions,
     ) -> Result<Ref<'_, GuildId, Player>, PlayerManagerError> {
-        let Some(player) = self.players.get(&guild_id) else {
+        let Some(player) = self.players.get(&options.guild_id) else {
             let player = Player::new(
                 self.websocket.clone(),
                 self.cleaner.downgrade(),
-                config,
+                options.config,
                 self.user_id,
-                guild_id,
-                server_update,
+                options.guild_id,
+                options.server_update.clone(),
             )
             .await?;
 
-            self.players.insert(guild_id, player);
+            self.players.insert(options.guild_id, player);
 
             return self
                 .players
-                .get(&guild_id)
+                .get(&options.guild_id)
                 .ok_or(PlayerManagerError::MissingPlayer);
         };
 
-        player.connect(&server_update, config).await?;
+        player
+            .connect(&options.server_update, options.config)
+            .await?;
 
         Ok(player)
     }

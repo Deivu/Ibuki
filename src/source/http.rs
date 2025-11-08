@@ -42,22 +42,21 @@ impl Source for Http {
         Some(Query::Url(query.to_string()))
     }
 
-    async fn resolve(&self, query: Query) -> Result<ApiTrackResult, ResolverError> {
+    async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
         let url = match query {
             Query::Url(url) => url,
-            Query::Search(_) => return Err(ResolverError::InputNotSupported),
+            Query::Search(_) => return Ok(None),
         };
 
         let client = self.get_client();
         let response = client.get(url.as_str()).send().await?;
 
-        let content = response
-            .headers()
-            .get("Content-Type")
-            .ok_or(ResolverError::InputNotSupported)?;
+        let Some(content) = response.headers().get("Content-Type") else {
+            return Ok(None);
+        };
 
         if !content.to_str()?.contains("audio") {
-            return Err(ResolverError::InputNotSupported);
+            return Ok(None);
         }
 
         let mut request = HttpRequest::new(self.get_client(), url.to_owned());
@@ -79,7 +78,7 @@ impl Source for Http {
             plugin_info: Empty,
         };
 
-        Ok(ApiTrackResult::Track(track))
+        Ok(Some(ApiTrackResult::Track(track)))
     }
 
     async fn make_playable(&self, track: ApiTrack) -> Result<Track, ResolverError> {

@@ -27,7 +27,7 @@ pub trait Source {
 
     fn parse_query(&self, url: &str) -> Option<Query>;
 
-    async fn resolve(&self, query: Query) -> Result<ApiTrackResult, ResolverError>;
+    async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError>;
 
     async fn make_playable(&self, track: ApiTrack) -> Result<Track, ResolverError>;
 }
@@ -35,7 +35,7 @@ pub trait Source {
 impl ApiTrack {
     pub async fn make_playable(self) -> Result<Track, ResolverError> {
         let Some(client) = SOURCES.get(&self.info.source_name) else {
-            return Err(ResolverError::InputNotSupported);
+            return Err(ResolverError::Custom(format!("Source {} not found / supported", self.info.source_name)));
         };
 
         match &*client {

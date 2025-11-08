@@ -89,9 +89,10 @@ impl Source for Youtube {
             client: client.unwrap_or_default(),
             rusty_pipe: rusty_pipe.build().unwrap(),
             client_types: vec![
-                ClientType::Desktop,
-                ClientType::DesktopMusic,
                 ClientType::Mobile,
+                ClientType::Tv,
+                ClientType::Android,
+                ClientType::Ios,
             ],
             video_itags: vec![18, 22, 37, 44, 45, 46],
             audio_itags: vec![140, 141, 171, 250, 251],
@@ -121,7 +122,7 @@ impl Source for Youtube {
         Some(Query::Url(query.to_string()))
     }
 
-    async fn resolve(&self, query: Query) -> Result<ApiTrackResult, ResolverError> {
+    async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
         match query {
             Query::Url(url) => {
                 let request = self.rusty_pipe.query().resolve_url(url, true).await?;
@@ -130,7 +131,7 @@ impl Source for Youtube {
 
                 match request {
                     UrlTarget::Video { id, .. } => {
-                        let player = self.rusty_pipe.query().player(&id).await?;
+                        let player = self.fetch_video(&id).await?;
 
                         let metadata = player.details;
 
@@ -154,9 +155,9 @@ impl Source for Youtube {
                             plugin_info: Empty,
                         };
 
-                        Ok(ApiTrackResult::Track(track))
+                        Ok(Some(ApiTrackResult::Track(track)))
                     }
-                    UrlTarget::Channel { .. } => Ok(ApiTrackResult::Empty(None)),
+                    UrlTarget::Channel { .. } => Ok(Some(ApiTrackResult::Empty(None))),
                     UrlTarget::Playlist { id } => {
                         let mut metadata = self.rusty_pipe.query().playlist(&id).await?;
 
@@ -210,16 +211,18 @@ impl Source for Youtube {
                             playlist.tracks.push(track);
                         }
 
-                        Ok(ApiTrackResult::Playlist(playlist))
+                        Ok(Some(ApiTrackResult::Playlist(playlist)))
                     }
-                    UrlTarget::Album { .. } => Ok(ApiTrackResult::Empty(None)),
+                    UrlTarget::Album { .. } => Ok(Some(ApiTrackResult::Empty(None))),
                 }
             }
             Query::Search(input) => {
-                let term = input
+                let Some(term) = input
                     .strip_prefix("ytsearch")
                     .or(input.strip_prefix("ytmsearch"))
-                    .ok_or(ResolverError::InputNotSupported)?;
+                else {
+                    return Ok(None);
+                };
 
                 let (prefix, _) = input.split_at(term.len() - input.len());
 
@@ -273,7 +276,7 @@ impl Source for Youtube {
                             }
                         }
 
-                        Ok(ApiTrackResult::Search(tracks))
+                        Ok(Some(ApiTrackResult::Search(tracks)))
                     }
                     "ytmsearch" => {
                         let results = self.rusty_pipe.query().music_search_videos(term).await?;
@@ -311,58 +314,16 @@ impl Source for Youtube {
                             tracks.push(track);
                         }
 
-                        Ok(ApiTrackResult::Search(tracks))
+                        Ok(Some(ApiTrackResult::Search(tracks)))
                     }
-                    _ => Err(ResolverError::InputNotSupported),
+                    _ => Ok(None),
                 }
             }
         }
     }
 
     async fn make_playable(&self, track: ApiTrack) -> Result<Track, ResolverError> {
-        let player = {
-            let mut result: Option<VideoPlayer> = None;
-
-            for client in &self.client_types {
-                let video = self
-                    .rusty_pipe
-                    .query()
-                    .player_from_client(&track.info.identifier, *client)
-                    .await;
-
-                let client_name = format!("Client [{}]", self.readable_client_type(client));
-
-                match video {
-                    Ok(video) => {
-                        if video.audio_streams.is_empty() && video.video_streams.is_empty() {
-                            tracing::warn!(
-                                "{} failed to get results due to: No streams available",
-                                client_name,
-                            );
-                            continue;
-                        }
-
-                        tracing::info!(
-                            "{} got results! Formats Count => [Audio: {}]  [Video: {}]",
-                            client_name,
-                            video.audio_streams.len(),
-                            video.video_streams.len()
-                        );
-
-                        let _ = result.insert(video);
-
-                        break;
-                    }
-                    Err(err) => {
-                        tracing::warn!("{} failed to get results due to: {:?}", client_name, err);
-                    }
-                }
-            }
-
-            result.ok_or(ResolverError::MissingRequiredData(
-                "Failed to resolve an Api Track",
-            ))?
-        };
+        let player = self.fetch_video(&track.info.identifier).await?;
 
         let audio = player
             .audio_streams
@@ -434,6 +395,54 @@ impl Source for Youtube {
 }
 
 impl Youtube {
+    async fn fetch_video(&self, id: &str) -> Result<VideoPlayer, ResolverError> {
+        let mut result: Option<VideoPlayer> = None;
+
+        for client in &self.client_types {
+            let video = self
+                .rusty_pipe
+                .query()
+                .player_from_client(id, *client)
+                .await;
+
+            let client_name = format!("Client [{}]", self.readable_client_type(client));
+
+            tracing::debug!("Trying to resolve [{}] with: ", client_name);
+
+            match video {
+                Ok(video) => {
+                    if video.audio_streams.is_empty() && video.video_streams.is_empty() {
+                        tracing::warn!(
+                            "{} failed to get results due to: No streams available",
+                            client_name,
+                        );
+                        continue;
+                    }
+
+                    tracing::info!(
+                        "{} got results! Formats Count => [Audio: {}]  [Video: {}]",
+                        client_name,
+                        video.audio_streams.len(),
+                        video.video_streams.len()
+                    );
+
+                    let _ = result.insert(video);
+
+                    break;
+                }
+                Err(err) => {
+                    tracing::warn!("{} failed to get results due to: {:?}", client_name, err);
+                }
+            }
+        }
+
+        if result.is_none() {
+            return Err(ResolverError::MissingRequiredData("No data available"));
+        }
+
+        Ok(result.unwrap())
+    }
+
     pub fn readable_client_type(&self, client: &ClientType) -> &'static str {
         match client {
             ClientType::Desktop => "Desktop",

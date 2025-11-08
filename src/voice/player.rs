@@ -1,11 +1,12 @@
 use super::{events::PlayerEvent, manager::CleanerSender};
+use crate::ws::client::WebSocketClient;
 use crate::{
     CONFIG, SCHEDULER,
     models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty},
     util::{decoder::decode_base64, errors::PlayerError},
 };
-use axum::extract::ws::Message;
 use flume::WeakSender;
+use kameo::actor::ActorRef;
 use songbird::{
     Config as SongbirdConfig, ConnectionInfo, CoreEvent, Driver, Event, TrackEvent,
     driver::Bitrate,
@@ -24,7 +25,7 @@ pub struct Player {
     pub guild_id: GuildId,
     pub active: Arc<AtomicBool>,
     pub data: Arc<Mutex<ApiPlayer>>,
-    pub websocket: WeakSender<Message>,
+    pub websocket: ActorRef<WebSocketClient>,
     pub cleaner: WeakSender<CleanerSender>,
     pub driver: Arc<Mutex<Option<Driver>>>,
     pub handle: Arc<Mutex<Option<TrackHandle>>>,
@@ -32,7 +33,7 @@ pub struct Player {
 
 impl Player {
     pub async fn new(
-        websocket: WeakSender<Message>,
+        websocket: ActorRef<WebSocketClient>,
         cleaner: WeakSender<CleanerSender>,
         config: Option<SongbirdConfig>,
         user_id: UserId,

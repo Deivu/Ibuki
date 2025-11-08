@@ -1,23 +1,19 @@
 #![recursion_limit = "256"]
 
-use crate::ws::client::WebsocketClient;
-use axum::{
-    Router,
-    extract::ws::{Message, Utf8Bytes},
-    middleware::from_fn,
-    routing, serve,
-};
+use crate::ws::client::{SendMessageWebsocket, WebSocketClient};
+use axum::{Router, middleware::from_fn, routing, serve};
 use bytesize::ByteSize;
 use cap::Cap;
 use dashmap::DashMap;
 use dotenv::dotenv;
+use kameo::actor::ActorRef;
+use mimalloc::MiMalloc;
 use models::{ApiCpu, ApiMemory, ApiNodeMessage, ApiStats};
 use reqwest::{Client, ClientBuilder};
 use songbird::{driver::Scheduler, id::UserId};
 use source::{deezer::source::Deezer, http::Http, youtube::Youtube};
 use std::sync::LazyLock;
 use std::{env::set_var, net::SocketAddr};
-use mimalloc::MiMalloc;
 use tokio::{
     main, net,
     task::JoinSet,
@@ -45,7 +41,7 @@ mod ws;
 static ALLOCATOR: Cap<MiMalloc> = Cap::new(MiMalloc, usize::MAX);
 static CONFIG: LazyLock<Config> = LazyLock::new(Config::new);
 static SCHEDULER: LazyLock<Scheduler> = LazyLock::new(Scheduler::default);
-static CLIENTS: LazyLock<DashMap<UserId, WebsocketClient>> = LazyLock::new(DashMap::new);
+static CLIENTS: LazyLock<DashMap<UserId, ActorRef<WebSocketClient>>> = LazyLock::new(DashMap::new);
 static SOURCES: LazyLock<DashMap<String, Sources>> = LazyLock::new(DashMap::new);
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 static REQWEST: LazyLock<Client> = LazyLock::new(|| {
@@ -174,7 +170,7 @@ async fn main() {
                 .map(|client| {
                     let clone = serialized.clone();
                     async move {
-                        let _ = client.send(Message::Text(Utf8Bytes::from(clone))).await;
+                        let _ = client.tell(SendMessageWebsocket(clone.into()));
                     }
                 })
                 .collect::<JoinSet<()>>();

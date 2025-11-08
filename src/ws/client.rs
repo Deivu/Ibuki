@@ -1,21 +1,47 @@
 use crate::CLIENTS;
 use crate::models::{ApiNodeMessage, ApiReady};
-use crate::voice::manager::PlayerManager;
+use crate::util::errors::PlayerManagerError;
+use crate::voice::manager::{CreatePlayerOptions, PlayerManager};
+use crate::voice::player::Player;
+use crate::ws::receiver::{ReceiverActor, ReceiverActorArgs};
+use crate::ws::sender::{SendToWebsocket, SenderActor};
 use axum::Error;
-use axum::body::Bytes;
 use axum::extract::ConnectInfo;
-use axum::extract::ws::{CloseFrame, Message, Utf8Bytes, WebSocket};
-use flume::{Receiver, Sender, unbounded};
-use futures::{sink::SinkExt, stream::StreamExt, stream::iter};
-use songbird::id::UserId;
+use axum::extract::ws::{Message as WsMessage, WebSocket};
+use futures::StreamExt;
+use kameo::Actor;
+use kameo::actor::ActorRef;
+use kameo::message::{Context, Message as KameoMessage};
+use songbird::id::{GuildId, UserId};
+use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::ops::ControlFlow;
+use std::option::Option;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use uuid::Uuid;
+
+pub struct ConnectWebsocket {
+    socket: WebSocket,
+    session_id: Option<u128>,
+}
+
+pub struct DisconnectWebsocket;
+
+pub struct DestroyWebsocket;
+
+pub struct SendMessageWebsocket(pub WsMessage);
+
+pub struct GetSessionId;
+
+pub struct CreatePlayerFromWebsocket(pub CreatePlayerOptions);
+
+pub struct GetPlayerFromWebsocket(pub GuildId);
+
+pub struct DisconnectPlayerFromWebsocket(pub GuildId);
+
+pub struct DisconnectAllPlayersFromWebsocket;
+
+pub struct UpdateResumeAndTimeout(pub bool, pub u32);
 
 #[derive(Clone)]
 pub struct WebsocketRequestData {
@@ -24,158 +50,111 @@ pub struct WebsocketRequestData {
     pub session_id: Option<u128>,
 }
 
-pub struct WebsocketClient {
-    pub user_id: UserId,
-    pub session_id: u128,
-    pub player_manager: PlayerManager,
-    pub resume: bool,
-    pub timeout: u16,
-    message_sender: Sender<Message>,
-    message_receiver: Receiver<Message>,
-    handles: Vec<JoinHandle<()>>,
+pub struct WebSocketClient {
+    user_id: UserId,
+    session_id: u128,
+    sender: Option<ActorRef<SenderActor>>,
+    receiver: Option<ActorRef<ReceiverActor>>,
+    player_manager: PlayerManager,
+    message_buffer: VecDeque<WsMessage>,
+    resume: Arc<AtomicBool>,
+    timeout: Arc<AtomicU32>,
+    dropped: Arc<AtomicBool>,
 }
 
-impl WebsocketClient {
-    pub fn new(user_id: UserId) -> Self {
-        let session_id = Uuid::new_v4().as_u128();
-        let (message_sender, message_receiver) = unbounded::<Message>();
-        let player_manager = PlayerManager::new(message_sender.downgrade(), user_id);
-        let resume = false;
-        let timeout = 30;
+impl Actor for WebSocketClient {
+    type Args = UserId;
+    type Error = ();
 
-        Self {
+    async fn on_start(
+        user_id: Self::Args,
+        actor_ref: ActorRef<Self>,
+    ) -> Result<WebSocketClient, Self::Error> {
+        Ok(Self {
             user_id,
-            session_id,
-            player_manager,
-            resume,
-            timeout,
-            message_sender,
-            message_receiver,
-            handles: vec![],
-        }
+            session_id: Uuid::new_v4().as_u128(),
+            sender: None,
+            receiver: None,
+            player_manager: PlayerManager::new(actor_ref.clone(), user_id),
+            message_buffer: VecDeque::new(),
+            resume: Arc::new(AtomicBool::new(false)),
+            timeout: Arc::new(AtomicU32::new(30)),
+            // todo!() im not sure if i want this or i can just link the receiver actor to this actor so if that dies, so is this
+            dropped: Arc::new(AtomicBool::new(false)),
+        })
     }
+}
 
-    pub async fn connect(
+impl KameoMessage<ConnectWebsocket> for WebSocketClient {
+    type Reply = bool;
+
+    async fn handle(
         &mut self,
-        socket: WebSocket,
-        session_id: Option<u128>,
-    ) -> Result<bool, Error> {
-        self.handles.retain(|handle| {
-            handle.abort();
-            false
-        });
+        msg: ConnectWebsocket,
+        ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        if let Some(sender) = self.sender.take() {
+            sender.kill();
+        }
+        if let Some(receiver) = self.receiver.take() {
+            receiver.kill();
+        }
 
-        let (mut sender, mut receiver) = socket.split();
+        let (sink, stream) = msg.socket.split();
 
-        // check if the socket is open to send messages
-        sender.send(Message::Ping(Bytes::new())).await?;
+        let resumed = self.resume.load(Ordering::Acquire)
+            && msg.session_id.filter(|id| *id == self.session_id).is_some();
 
-        let mut resumed = false;
-
-        let queue_length = self.message_receiver.len();
-
-        if self.resume && session_id.filter(|id| *id == self.session_id).is_some() {
-            let mut messages = iter(self.message_receiver.drain().map(Ok::<Message, Error>));
-
-            sender.send_all(&mut messages).await?;
-
-            resumed = true;
-
+        if resumed {
             tracing::info!(
-                "Websocket Connection with [SessionId: {}] resumed! [Replayed Messages: {}]",
+                "WebSocket connection resumed [SessionId: {}], replaying {} messages",
                 self.session_id,
-                queue_length
+                self.message_buffer.len()
             );
         } else {
-            let _ = self.message_receiver.drain();
-
-            self.player_manager.disconnect_all();
-
+            let queue_length = self.message_buffer.len();
+            self.message_buffer.clear();
             self.session_id = Uuid::new_v4().as_u128();
 
+            // todo!() disconnect_all and clear refactor soon for clearer code
+            self.player_manager.disconnect_all();
+
             tracing::info!(
-                "Websocket Connection with [SessionId: {}] identified! [Dropped Messages: {}]",
+                "WebSocket connection identified [SessionId: {}], dropped {} messages",
                 self.session_id,
                 queue_length
             );
         }
 
-        let ptr = Arc::new(AtomicBool::new(false));
-
-        // incoming message handler
-        let dropped = ptr.clone();
-        let message_sender = self.message_sender.clone();
-        let user_id = self.user_id.to_owned();
-        let players = self.player_manager.players.clone();
-
-        let timeout = self.timeout;
-        let resume = self.resume;
-
-        let receive_handle = tokio::spawn(async move {
-            while let Some(Ok(message)) = receiver.next().await {
-                if let Message::Close(close_frame) = message {
-                    tracing::info!(
-                        "Websocket connection was closed with closing frame: {:?}",
-                        close_frame
-                    );
-                    break;
-                }
-                if let Message::Text(data) = message {
-                    tracing::debug!("Websocket connection received a message: {}", data.as_str());
-                }
-            }
-
-            dropped.swap(true, Ordering::Acquire);
-
-            message_sender.send_async(Message::Close(None)).await.ok();
-
-            drop(receiver);
-
-            if resume && timeout > 0 {
-                let duration = Duration::from_secs(timeout as u64);
-
-                tracing::info!(
-                    "Websocket connection was closed abruptly and is possible to be resumed within {} sec(s)",
-                    duration.as_secs()
-                );
-
-                sleep(duration).await;
-            }
-
-            players.clear();
-
-            CLIENTS.remove(&user_id);
-
-            tracing::info!("Cleaned up websocket client for [UserId {}]", user_id);
+        let sender_actor = SenderActor::spawn(SenderActor {
+            sink,
+            dropped: self.dropped.clone(),
         });
 
-        self.handles.push(receive_handle);
+        ctx.actor_ref().link(&sender_actor).await;
 
-        // message sender handler
-        let queue = self.message_receiver.clone();
-        let dropped = ptr.clone();
+        self.sender = Some(sender_actor.clone());
 
-        let send_handle = tokio::spawn(async move {
-            while let Ok(message) = queue.recv_async().await {
-                if dropped.load(Ordering::Acquire) {
-                    break;
-                }
-
-                if let Err(error) = sender.send(message.clone()).await {
-                    tracing::warn!("Failed send to websocket client. Error: {}", error);
-                    continue;
-                }
-
-                tracing::debug!(
-                    "Sent [{}] to websocket client",
-                    message.to_text().unwrap_or("Unknown")
-                );
+        if resumed {
+            for buffered_msg in self.message_buffer.drain(..) {
+                sender_actor.tell(SendToWebsocket(buffered_msg)).await.ok();
             }
+        }
 
-            tracing::info!("Websocket connection sender is stopped");
+        let client_ref = ctx.actor_ref();
+        let receiver_actor = ReceiverActor::spawn(ReceiverActorArgs {
+            stream,
+            client_ref: client_ref.clone(),
+            dropped: self.dropped.clone(),
+            user_id: self.user_id.clone(),
+            players: self.player_manager.players.clone(),
+            resume: self.resume.clone(),
+            timeout: self.timeout.clone(),
         });
 
-        self.handles.push(send_handle);
+        ctx.actor_ref().link(&receiver_actor).await;
+
+        self.receiver = Some(receiver_actor);
 
         let event = ApiReady {
             resumed,
@@ -185,56 +164,150 @@ impl WebsocketClient {
         // Normally, this should never happen, but we ignore it if it does happen and log it
         let Ok(serialized) = serde_json::to_string(&ApiNodeMessage::Ready(Box::new(event))) else {
             tracing::warn!("Failed to encode ready op, this should not happen usually");
-            return Ok(resumed);
+            return resumed;
         };
 
-        let _ = self.send(Message::Text(Utf8Bytes::from(serialized))).await;
+        sender_actor
+            .tell(SendToWebsocket(WsMessage::Text(serialized.into())))
+            .await
+            .ok();
 
-        Ok(resumed)
+        resumed
     }
+}
 
-    /**
-     * Disconnects the ws only
-     */
-    pub async fn disconnect(&mut self) {
-        let flow = self
-            .send(Message::Close(Some(CloseFrame {
+impl KameoMessage<SendMessageWebsocket> for WebSocketClient {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        msg: SendMessageWebsocket,
+        _: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        if let Some(sender) = &self.sender {
+            let Err(error) = sender.tell(SendToWebsocket(msg.0)).await else {
+                return;
+            };
+            tracing::warn!("Failed to send to sender task due to {:?}", error);
+        } else {
+            self.message_buffer.push_back(msg.0);
+            tracing::debug!("Sender task is disconnected, buffering...");
+        }
+    }
+}
+
+impl KameoMessage<DisconnectWebsocket> for WebSocketClient {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _: DisconnectWebsocket,
+        _: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        if let Some(sender) = &self.sender {
+            let close_msg = WsMessage::Close(Some(axum::extract::ws::CloseFrame {
                 code: 1000,
-                reason: Utf8Bytes::from("Invoked Disconnect"),
-            })))
-            .await;
-
-        if flow == ControlFlow::Break(()) {
-            return;
+                reason: "Invoked Disconnect".into(),
+            }));
+            sender.tell(SendToWebsocket(close_msg)).await.ok();
         }
 
-        self.handles.retain(|handle| {
-            handle.abort();
-            false
-        });
+        if let Some(sender) = self.sender.take() {
+            sender.kill();
+        }
+        if let Some(receiver) = self.receiver.take() {
+            receiver.kill();
+        }
     }
+}
 
-    pub async fn send(&self, message: Message) -> ControlFlow<()> {
-        let result = self.message_sender.send_async(message).await;
+impl KameoMessage<DestroyWebsocket> for WebSocketClient {
+    type Reply = ();
 
-        if let Err(error) = result {
-            tracing::warn!("Failed to send message due to: {}", error);
-            return ControlFlow::Break(());
+    async fn handle(
+        &mut self,
+        _: DestroyWebsocket,
+        _: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        if let Some(sender) = self.sender.take() {
+            sender.kill();
+        }
+        if let Some(receiver) = self.receiver.take() {
+            receiver.kill();
         }
 
-        ControlFlow::Continue(())
-    }
-
-    /**
-     * Disconnects without close code and clears the voice connections
-     */
-    pub fn destroy(&mut self) {
-        self.handles.retain(|handle| {
-            handle.abort();
-            false
-        });
-
+        // todo!() disconnect_all and clear refactor soon for clearer code
         self.player_manager.disconnect_all();
+    }
+}
+
+impl KameoMessage<GetSessionId> for WebSocketClient {
+    type Reply = u128;
+
+    async fn handle(&mut self, _: GetSessionId, _: &mut Context<Self, Self::Reply>) -> Self::Reply {
+        self.session_id
+    }
+}
+
+impl KameoMessage<CreatePlayerFromWebsocket> for WebSocketClient {
+    type Reply = Result<(), PlayerManagerError>;
+
+    async fn handle(
+        &mut self,
+        msg: CreatePlayerFromWebsocket,
+        _: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.player_manager.create_player(msg.0).await.map(|_| ())
+    }
+}
+
+impl KameoMessage<GetPlayerFromWebsocket> for WebSocketClient {
+    type Reply = Option<Player>;
+
+    async fn handle(
+        &mut self,
+        msg: GetPlayerFromWebsocket,
+        _: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.player_manager
+            .get_player(&msg.0)
+            .map(|player| player.clone())
+    }
+}
+
+impl KameoMessage<DisconnectPlayerFromWebsocket> for WebSocketClient {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        msg: DisconnectPlayerFromWebsocket,
+        _: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.player_manager.disconnect_player(&msg.0).await;
+    }
+}
+
+impl KameoMessage<DisconnectAllPlayersFromWebsocket> for WebSocketClient {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _: DisconnectAllPlayersFromWebsocket,
+        _: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.player_manager.disconnect_all();
+    }
+}
+
+impl KameoMessage<UpdateResumeAndTimeout> for WebSocketClient {
+    type Reply = ();
+    async fn handle(
+        &mut self,
+        msg: UpdateResumeAndTimeout,
+        _: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.resume.swap(msg.0, Ordering::Release);
+        self.timeout.swap(msg.1, Ordering::Release);
     }
 }
 
@@ -243,20 +316,26 @@ pub async fn handle_websocket_upgrade_request(
     data: WebsocketRequestData,
     addr: ConnectInfo<SocketAddr>,
 ) {
-    let Some(mut client) = CLIENTS.get_mut(&data.user_id) else {
-        let client = WebsocketClient::new(data.user_id);
+    let Some(client) = CLIENTS.get_mut(&data.user_id) else {
+        let client = WebSocketClient::spawn(data.user_id);
 
         CLIENTS.insert(data.user_id, client);
 
         return Box::pin(handle_websocket_upgrade_request(socket, data, addr)).await;
     };
 
-    match client.connect(socket, data.session_id).await {
+    match client
+        .ask(ConnectWebsocket {
+            socket,
+            session_id: data.session_id,
+        })
+        .await
+    {
         Ok(resumed) => {
             tracing::info!(
-                "Handled connection from: {}. [SessionId: {}] [UserId: {}] [UserAgent: {}] [Resume: {}]",
+                "Handled connection from: {}. [SessionId: {:?}] [UserId: {}] [UserAgent: {}] [Resume: {}]",
                 addr.ip(),
-                client.session_id,
+                data.session_id,
                 data.user_id,
                 data.user_agent,
                 resumed
@@ -265,9 +344,9 @@ pub async fn handle_websocket_upgrade_request(
         Err(error) => {
             // todo: probably remove the client here?
             tracing::warn!(
-                "Connection was not handled properly from: {}. [SessionId: {}] [UserId: {}] [UserAgent: {}] [Error: {:?}]",
+                "Connection was not handled properly from: {}. [SessionId: {:?}] [UserId: {}] [UserAgent: {}] [Error: {:?}]",
                 addr.ip(),
-                client.session_id,
+                data.session_id,
                 data.user_id,
                 data.user_agent,
                 error
