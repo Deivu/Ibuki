@@ -54,12 +54,12 @@ impl<T: ChunkTransform> Read for SeekableSource<T> {
                 return Ok(0);
             }
 
-            self.downloaded_bytes += total_read;
-
-            let chunk_index = self.downloaded_bytes / chunk_size;
+            let chunk_index = (self.downloaded_bytes + total_read) / chunk_size;
 
             self.transform
                 .transform_chunk(&mut buf[..total_read], chunk_index)?;
+
+            self.downloaded_bytes += total_read;
 
             self.position += total_read;
 
@@ -109,14 +109,14 @@ impl<T: ChunkTransform> Read for SeekableSource<T> {
             return Ok(0);
         }
 
-        self.downloaded_bytes += total_read;
-
-        let chunk_index = self.downloaded_bytes / chunk_size;
+        let chunk_index = (self.downloaded_bytes + total_read) / chunk_size;
 
         self.transform.transform_chunk(
             &mut downloaded[start_index..start_index + total_read],
             chunk_index,
         )?;
+
+        self.downloaded_bytes += total_read;
 
         let available_bytes = self.downloaded_bytes - self.position;
         let buffer_end_bytes = min(buf.len(), available_bytes);
