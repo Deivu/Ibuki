@@ -17,7 +17,7 @@ pub struct ReceiverActorArgs {
     pub client_ref: ActorRef<WebSocketClient>,
     pub dropped: Arc<AtomicBool>,
     pub user_id: UserId,
-    pub players: Arc<DashMap<GuildId, Player>>,
+    pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
     pub resume: Arc<AtomicBool>,
     pub timeout: Arc<AtomicU32>,
 }

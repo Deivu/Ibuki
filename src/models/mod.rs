@@ -1,3 +1,4 @@
+use kameo::Reply;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
@@ -94,7 +95,7 @@ pub struct ApiVoiceData {
     pub ping: Option<i32>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ApiPlayerState {
     pub time: u64,
     pub position: u32,
@@ -102,7 +103,7 @@ pub struct ApiPlayerState {
     pub ping: Option<i32>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Reply, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiPlayer {
     #[serde(deserialize_with = "str_to_u64", serialize_with = "u64_to_str")]

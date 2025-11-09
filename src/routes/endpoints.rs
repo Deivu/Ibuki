@@ -14,8 +14,10 @@ use crate::util::errors::EndpointError;
 use crate::util::source::Source;
 use crate::util::source::Sources;
 use crate::voice::manager::CreatePlayerOptions;
+use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetVolume, Stop};
 use crate::ws::client::{
-    CreatePlayer, DisconnectPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
+    CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket,
+    WebSocketClient,
 };
 use axum::Json;
 use axum::body::Body;
@@ -26,7 +28,6 @@ use dashmap::mapref::multiple::RefMulti;
 use kameo::actor::ActorRef;
 use serde_json::Value;
 use songbird::id::{GuildId, UserId};
-use std::sync::atomic::Ordering;
 
 async fn get_client(
     session_id: u128,
@@ -59,7 +60,9 @@ pub async fn get_player(
         .await?
         .ok_or(EndpointError::NotFound)?;
 
-    let string = serde_json::to_string_pretty(&*player.data.lock().await)?;
+    let data = player.ask(GetApiPlayerInfo).await?;
+
+    let string = serde_json::to_string_pretty(&data)?;
 
     Ok(Response::new(Body::from(string)))
 }
@@ -105,14 +108,16 @@ pub async fn update_player(
 
     let mut stopped = false;
 
+    let is_active = player.ask(IsActive).await?;
+
     if let Some(encoded) = update_player.track.map(|track| track.encoded) {
-        if !player.active.load(Ordering::Relaxed) || !query.no_replace.unwrap_or(false) {
+        if !is_active || !query.no_replace.unwrap_or(false) {
             match encoded {
                 Value::String(encoded) => {
-                    player.play(encoded).await?;
+                    player.ask(Play { encoded }).await?;
                 }
                 _ => {
-                    player.stop().await;
+                    player.ask(Stop).await?;
                     stopped = true;
                 }
             }
@@ -121,19 +126,25 @@ pub async fn update_player(
 
     if !stopped {
         if let Some(pause) = update_player.paused {
-            player.pause(pause).await;
+            player.ask(Pause { pause }).await?;
         }
 
         if let Some(position) = update_player.position {
-            player.seek(position).await;
+            player.ask(Seek { position }).await?;
         }
 
         if let Some(volume) = update_player.volume {
-            player.set_volume(volume as f32).await;
+            player
+                .ask(SetVolume {
+                    volume: volume as f32,
+                })
+                .await?;
         }
     }
 
-    let string = serde_json::to_string_pretty(&*player.data.lock().await)?;
+    let data = player.ask(GetApiPlayerInfo).await?;
+
+    let string = serde_json::to_string_pretty(&data)?;
 
     Ok(Response::new(Body::from(string)))
 }
@@ -150,7 +161,7 @@ pub async fn destroy_player(
         .ok_or(EndpointError::NotFound)?;
 
     client
-        .ask(DisconnectPlayer {
+        .ask(DestroyPlayer {
             guild_id: GuildId::from_u64(guild_id),
         })
         .await?;

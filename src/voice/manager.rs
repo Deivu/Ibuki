@@ -1,19 +1,13 @@
-use super::player::Player;
+use super::player::{Connect, Destroy, Player, PlayerOptions};
 use crate::models::ApiVoiceData;
 use crate::util::errors::PlayerManagerError;
 use crate::ws::client::WebSocketClient;
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
-use flume::{Sender, unbounded};
-use kameo::actor::ActorRef;
+use kameo::actor::{ActorRef, Spawn};
 use songbird::Config;
 use songbird::id::{GuildId, UserId};
 use std::sync::Arc;
-
-pub enum CleanerSender {
-    GuildId(GuildId),
-    Destroy,
-}
 
 pub struct CreatePlayerOptions {
     pub guild_id: GuildId,
@@ -23,90 +17,68 @@ pub struct CreatePlayerOptions {
 
 pub struct PlayerManager {
     pub user_id: UserId,
-    pub players: Arc<DashMap<GuildId, Player>>,
-    cleaner: Sender<CleanerSender>,
+    pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
     websocket: ActorRef<WebSocketClient>,
 }
 
 impl PlayerManager {
     pub fn new(websocket: ActorRef<WebSocketClient>, user_id: UserId) -> Self {
-        let (cleaner, listener) = unbounded::<CleanerSender>();
-
-        let manager = Self {
+        Self {
             user_id,
-            cleaner,
             websocket,
             players: Arc::new(DashMap::new()),
-        };
-
-        let players = manager.players.clone();
-
-        tokio::spawn(async move {
-            while let Ok(data) = listener.recv_async().await {
-                if let CleanerSender::GuildId(guild_id) = data {
-                    players.remove(&guild_id);
-                    continue;
-                }
-                break;
-            }
-        });
-
-        manager
+        }
     }
 
-    pub fn get_player(&self, guild_id: &GuildId) -> Option<Ref<'_, GuildId, Player>> {
+    pub fn get_player(&self, guild_id: &GuildId) -> Option<Ref<'_, GuildId, ActorRef<Player>>> {
         self.players.get(guild_id)
     }
 
     pub async fn create_player(
         &self,
         options: CreatePlayerOptions,
-    ) -> Result<Ref<'_, GuildId, Player>, PlayerManagerError> {
-        let Some(player) = self.players.get(&options.guild_id) else {
-            let player = Player::new(
-                self.websocket.clone(),
-                self.cleaner.downgrade(),
-                options.config,
-                self.user_id,
-                options.guild_id,
-                options.server_update.clone(),
-            )
-            .await?;
-
-            self.players.insert(options.guild_id, player);
-
-            return self
-                .players
-                .get(&options.guild_id)
-                .ok_or(PlayerManagerError::MissingPlayer);
+    ) -> Result<(), PlayerManagerError> {
+        if self.players.contains_key(&options.guild_id) {
+            let Some(player) = self.players.get(&options.guild_id) else {
+                return Err(PlayerManagerError::MissingPlayer);
+            };
+            player
+                .ask(Connect {
+                    server_update: options.server_update,
+                    config: options.config,
+                })
+                .await?;
+            return Ok(());
+        }
+        let options = PlayerOptions {
+            websocket: self.websocket.clone(),
+            config: options.config,
+            user_id: self.user_id,
+            guild_id: options.guild_id.clone(),
+            server_update: options.server_update,
+            players: self.players.clone(),
         };
-
-        player
-            .connect(&options.server_update, options.config)
-            .await?;
-
-        Ok(player)
+        Player::spawn(options);
+        Ok(())
     }
 
-    pub async fn disconnect_player(&self, guild_id: &GuildId) {
+    pub async fn destroy_player(&self, guild_id: &GuildId) {
         let Some(player) = self.get_player(guild_id) else {
             return;
         };
-
-        player.disconnect().await;
+        if player.ask(Destroy).await.is_err() {
+            player.kill();
+        }
     }
 
-    pub fn disconnect_all(&self) {
+    pub fn destroy_all(&self) {
         self.players.clear();
     }
 }
 
 impl Drop for PlayerManager {
     fn drop(&mut self) {
-        self.cleaner.send(CleanerSender::Destroy).ok();
-
-        self.players.clear();
-
+        self.destroy_all();
         tracing::info!("PlayerManager with [UserId: {}] dropped!", self.user_id);
     }
 }

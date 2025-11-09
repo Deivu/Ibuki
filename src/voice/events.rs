@@ -1,14 +1,14 @@
-use super::manager::CleanerSender;
-use super::player::Player;
-use crate::models::{
-    ApiNodeMessage, ApiPlayer, ApiPlayerEvents, ApiPlayerUpdate, ApiTrack, ApiTrackEnd,
-    ApiTrackStart, ApiWebSocketClosed,
+use super::player::{
+    Destroy, GetApiPlayerInfo, GetDriver, GetTrackHandle, Player, PlayerUpdate,
+    SendToPlayerWebsocket, Stop, UpdateFromInternalEvent,
 };
-use crate::ws::client::{SendConnectionMessage, WebSocketClient};
+use crate::models::{
+    ApiNodeMessage, ApiPlayerEvents, ApiPlayerUpdate, ApiTrack, ApiTrackEnd, ApiTrackStart,
+    ApiWebSocketClosed,
+};
 use async_trait::async_trait;
 use axum::extract::ws::{Message, Utf8Bytes};
-use flume::WeakSender;
-use kameo::actor::ActorRef;
+use kameo::actor::{ActorRef, WeakActorRef};
 use songbird::CoreEvent;
 use songbird::Driver;
 use songbird::Event;
@@ -20,9 +20,7 @@ use songbird::id::{GuildId, UserId};
 use songbird::model::CloseCode;
 use songbird::tracks::{TrackHandle, TrackState};
 use std::sync::Arc;
-use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::Mutex;
 
 enum DataResult {
     // probably usable in future
@@ -37,88 +35,50 @@ pub struct PlayerEvent {
     pub user_id: UserId,
     pub guild_id: GuildId,
     pub event: Event,
+    pub player_ref: WeakActorRef<Player>,
     pub fired: Arc<AtomicBool>,
-    pub active: Weak<AtomicBool>,
-    pub data: Weak<Mutex<ApiPlayer>>,
-    pub websocket: ActorRef<WebSocketClient>,
-    pub cleaner: WeakSender<CleanerSender>,
-    pub driver: Weak<Mutex<Option<Driver>>>,
-    pub handle: Weak<Mutex<Option<TrackHandle>>>,
 }
 
 impl PlayerEvent {
-    pub fn new(event: Event, player: &Player) -> Self {
+    pub fn new(
+        event: Event,
+        guild_id: GuildId,
+        user_id: UserId,
+        player_ref: WeakActorRef<Player>,
+    ) -> Self {
         Self {
-            user_id: player.user_id,
-            guild_id: player.guild_id,
+            user_id,
+            guild_id,
             event,
+            player_ref,
             fired: Arc::new(AtomicBool::new(false)),
-            active: Arc::downgrade(&player.active),
-            data: Arc::downgrade(&player.data),
-            websocket: player.websocket.clone(),
-            cleaner: player.cleaner.clone(),
-            driver: Arc::downgrade(&player.driver),
-            handle: Arc::downgrade(&player.handle),
         }
+    }
+    pub async fn get_driver(&self) -> Option<Driver> {
+        self.get_actor_ref()?.ask(GetDriver).await.ok()?
     }
 
     pub async fn get_track_handle(&self) -> Option<TrackHandle> {
-        self.handle.upgrade()?.lock().await.clone()
+        self.get_actor_ref()?.ask(GetTrackHandle).await.ok()?
     }
 
-    pub async fn get_track_state(&self) -> Option<TrackState> {
-        self.get_track_handle().await?.get_info().await.ok()
+    pub fn get_actor_ref(&self) -> Option<ActorRef<Player>> {
+        self.player_ref.upgrade().clone()
     }
 
-    pub async fn stop(&self, stop: bool) -> Option<()> {
-        let mutex = self.handle.upgrade()?;
-
-        let handle = mutex.lock().await.take()?;
-
-        if !stop {
-            return None;
-        }
-
-        handle.stop().ok()
+    pub async fn stop(&self) -> Option<()> {
+        self.get_actor_ref()?.ask(Stop).await.ok()
     }
 
-    pub async fn disconnect(&self, stop: bool) -> Option<()> {
-        if stop {
-            self.stop(stop).await;
-        }
-
-        let arc = self.driver.upgrade()?;
-
-        let mut guard = arc.lock().await;
-
-        if let Some(driver) = guard.as_mut() {
-            driver.leave();
-        }
-
-        Some(())
+    pub async fn destroy(&self) -> Option<()> {
+        self.get_actor_ref()?.ask(Destroy).await.ok()
     }
 
-    pub async fn destroy(&self) {
-        let Some(sender) = self.cleaner.upgrade() else {
-            tracing::warn!(
-                "Player Event Handler with [GuildId: {}] [UserId: {}] tried to send a destroy message on cleaner channel that don\'t exist",
-                self.guild_id,
-                self.user_id
-            );
-            return;
-        };
-
-        sender
-            .send_async(CleanerSender::GuildId(self.guild_id))
+    pub async fn send_to_websocket(&self, message: Message) -> Option<()> {
+        self.get_actor_ref()?
+            .ask(SendToPlayerWebsocket { message })
             .await
-            .ok();
-    }
-
-    pub async fn send_to_websocket(&self, message: Message) {
-        self.websocket
-            .tell(SendConnectionMessage { message })
-            .await
-            .ok();
+            .ok()
     }
 }
 
@@ -174,27 +134,36 @@ impl EventHandler for PlayerEvent {
 }
 
 async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult) -> Option<()> {
+    let actor_ref = player_event.get_actor_ref()?;
+
     match player_event.event {
         Event::Periodic(_, _) => {
-            let state = player_event.get_track_state().await?;
+            let state = player_event
+                .get_track_handle()
+                .await?
+                .get_info()
+                .await
+                .ok()?;
 
-            let arc = player_event.data.upgrade()?;
+            let updates: Vec<PlayerUpdate> = vec![
+                PlayerUpdate::Volume(state.volume as u32),
+                PlayerUpdate::Position(state.position.as_millis() as u32),
+            ];
 
-            let mut data = arc.lock().await;
+            actor_ref
+                .ask(UpdateFromInternalEvent { updates })
+                .await
+                .ok()?;
 
-            data.state.position = state.position.as_millis() as u32;
-            data.volume = state.volume as u32;
+            let api_player = actor_ref.ask(GetApiPlayerInfo).await.ok()?;
 
-            let event = ApiPlayerUpdate {
-                guild_id: player_event.guild_id.0.get(),
-                state: data.state.clone(),
+            let data = ApiPlayerUpdate {
+                guild_id: api_player.guild_id,
+                state: api_player.state,
             };
 
-            drop(data);
-            drop(arc);
-
             let serialized =
-                serde_json::to_string(&ApiNodeMessage::PlayerUpdate(Box::new(event))).ok()?;
+                serde_json::to_string(&ApiNodeMessage::PlayerUpdate(Box::new(data))).ok()?;
 
             player_event
                 .send_to_websocket(Message::Text(Utf8Bytes::from(serialized)))
@@ -210,41 +179,32 @@ async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult)
 
             match event {
                 TrackEvent::Pause => {
-                    let arc = player_event.data.upgrade()?;
-
-                    let mut data = arc.lock().await;
-
-                    data.paused = true;
-
+                    let updates = vec![PlayerUpdate::Paused(true)];
+                    actor_ref
+                        .ask(UpdateFromInternalEvent { updates })
+                        .await
+                        .ok()?;
                     Some(())
                 }
                 TrackEvent::Play => {
-                    let arc = player_event.data.upgrade()?;
-
-                    let mut data = arc.lock().await;
-
-                    data.paused = false;
-
+                    let updates = vec![PlayerUpdate::Paused(false)];
+                    actor_ref
+                        .ask(UpdateFromInternalEvent { updates })
+                        .await
+                        .ok()?;
                     Some(())
                 }
                 TrackEvent::End => {
-                    player_event
-                        .active
-                        .upgrade()?
-                        .swap(false, Ordering::Relaxed);
-
-                    let arc = player_event.data.upgrade()?;
-
-                    let mut data = arc.lock().await;
-
-                    data.track.take();
-                    data.paused = false;
-                    data.state.position = 0;
-
-                    drop(data);
-                    drop(arc);
-
-                    player_event.stop(false).await;
+                    let updates = vec![
+                        PlayerUpdate::Active(false),
+                        PlayerUpdate::Track(None),
+                        PlayerUpdate::Position(0),
+                    ];
+                    actor_ref
+                        .ask(UpdateFromInternalEvent { updates })
+                        .await
+                        .ok()?;
+                    actor_ref.ask(Stop).await.ok()?;
 
                     let event = ApiTrackEnd {
                         guild_id: player_event.guild_id.0.get(),
@@ -265,23 +225,24 @@ async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult)
                     Some(())
                 }
                 TrackEvent::Playable => {
-                    player_event.active.upgrade()?.swap(true, Ordering::Relaxed);
-
+                    actor_ref
+                        .ask(UpdateFromInternalEvent {
+                            updates: vec![PlayerUpdate::Active(true)],
+                        })
+                        .await
+                        .ok()?;
                     // ensures playable is only sent to client once
-                    if player_event.fired.load(Ordering::Relaxed) {
+                    if player_event.fired.load(Ordering::Acquire) {
                         return None;
                     }
+                    player_event.fired.swap(true, Ordering::Release);
 
-                    player_event.fired.swap(true, Ordering::Relaxed);
-
-                    let arc = player_event.data.upgrade()?;
-
-                    let mut data = arc.lock().await;
-
-                    let _ = data.track.insert(track.as_ref().clone());
-
-                    drop(data);
-                    drop(arc);
+                    actor_ref
+                        .ask(UpdateFromInternalEvent {
+                            updates: vec![PlayerUpdate::Track(Some(track.as_ref().clone()))],
+                        })
+                        .await
+                        .ok()?;
 
                     let event = ApiTrackStart {
                         guild_id: player_event.guild_id.0.get(),
@@ -303,12 +264,14 @@ async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult)
             }
         }
         Event::Core(CoreEvent::DriverDisconnect) => {
-            player_event
-                .active
-                .upgrade()?
-                .swap(false, Ordering::Relaxed);
+            actor_ref
+                .ask(UpdateFromInternalEvent {
+                    updates: vec![PlayerUpdate::Active(false)],
+                })
+                .await
+                .ok()?;
 
-            player_event.disconnect(true).await;
+            player_event.stop().await;
             player_event.destroy().await;
 
             let DataResult::Disconnect(code, reason) = data_result else {

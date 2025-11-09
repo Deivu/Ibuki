@@ -112,7 +112,7 @@ impl WebSocketClient {
             self.session_id = Uuid::new_v4().as_u128();
 
             // todo!() disconnect_all and clear refactor soon for clearer code
-            self.player_manager.disconnect_all();
+            self.player_manager.destroy_all();
 
             tracing::info!(
                 "WebSocket connection identified [SessionId: {}], dropped {} messages",
@@ -211,18 +211,18 @@ impl WebSocketClient {
     }
 
     #[message]
-    pub async fn get_player(&self, guild_id: GuildId) -> Option<Player> {
+    pub async fn get_player(&self, guild_id: GuildId) -> Option<ActorRef<Player>> {
         self.player_manager.get_player(&guild_id).map(|p| p.clone())
     }
 
     #[message]
-    pub async fn disconnect_player(&self, guild_id: GuildId) {
-        self.player_manager.disconnect_player(&guild_id).await;
+    pub async fn destroy_player(&self, guild_id: GuildId) {
+        self.player_manager.destroy_player(&guild_id).await;
     }
 
     #[message]
-    pub async fn disconnect_all(&self) {
-        self.player_manager.disconnect_all();
+    pub async fn destroy_all_players(&self) {
+        self.player_manager.destroy_all();
     }
 
     fn cleanup(&mut self) {
@@ -236,7 +236,7 @@ impl WebSocketClient {
 
     fn terminate(&mut self) {
         self.dropped.store(false, Ordering::Release);
-        self.player_manager.disconnect_all();
+        self.player_manager.destroy_all();
     }
 }
 

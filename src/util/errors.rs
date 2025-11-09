@@ -54,6 +54,8 @@ pub enum PlayerManagerError {
     Connection(#[from] songbird::error::ConnectionError),
     #[error(transparent)]
     Control(#[from] songbird::error::ControlError),
+    #[error("Failed to send a message to a task: {0}")]
+    FailedMessage(String),
     #[error("Expected a player but got none")]
     MissingPlayer,
     #[error("A connection is required to execute this action")]
@@ -66,6 +68,8 @@ pub enum PlayerError {
     MissingDriver,
     #[error("A connection is required to execute this action")]
     MissingConnection,
+    #[error("Failed to send a message to a task: {0}")]
+    FailedMessage(String),
     #[error(transparent)]
     Base64Decode(#[from] Base64DecodeError),
     #[error(transparent)]
@@ -104,8 +108,8 @@ pub enum EndpointError {
     MissingOption(&'static str),
     #[error("Unprocessable Entity due to: {0}")]
     UnprocessableEntity(&'static str),
-    #[error("Task error: {0}")]
-    ActorError(String),
+    #[error("Failed to send a message to a task: {0}")]
+    FailedMessage(String),
     #[error(transparent)]
     JsonError(#[from] serde_json::Error),
     #[error(transparent)]
@@ -131,7 +135,25 @@ where
     E: std::fmt::Debug,
 {
     fn from(error: SendError<M, E>) -> Self {
-        Self::ActorError(format!("{:?}", error))
+        Self::FailedMessage(format!("{:?}", error))
+    }
+}
+
+impl<M, E> From<SendError<M, E>> for PlayerError
+where
+    E: std::fmt::Debug,
+{
+    fn from(error: SendError<M, E>) -> Self {
+        Self::FailedMessage(format!("{:?}", error))
+    }
+}
+
+impl<M, E> From<SendError<M, E>> for PlayerManagerError
+where
+    E: std::fmt::Debug,
+{
+    fn from(error: SendError<M, E>) -> Self {
+        Self::FailedMessage(format!("{:?}", error))
     }
 }
 
@@ -182,7 +204,7 @@ impl IntoResponse for EndpointError {
             EndpointError::PlayerError(player_error) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, player_error.to_string())
             }
-            EndpointError::ActorError(actor_error) => {
+            EndpointError::FailedMessage(actor_error) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, actor_error.to_string())
             }
             EndpointError::Unauthorized => (StatusCode::FORBIDDEN, self.to_string()),
