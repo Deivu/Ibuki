@@ -51,8 +51,8 @@
 ## Downloads
 
 - Keep in mind that **Ibuki is in its alpha state**, and for any users that wants to try it is welcome to do so. For issues, please open an issue in [Issues Tab](https://github.com/Deivu/Ibuki/issues)
-  - Windows Download: [x86_64-pc-windows-msvc](https://github.com/Deivu/Ibuki/actions/runs/15319029072/artifacts/3218981086)
-  - Linux Download: [x86_64-unknown-linux-gnu](https://github.com/Deivu/Ibuki/actions/runs/15319029072/artifacts/3218967010)
+  - Windows Download: [x86_64-pc-windows-msvc](https://github.com/Deivu/Ibuki/actions/runs/19212990662/artifacts/4513085588)
+  - Linux Download: [x86_64-unknown-linux-gnu](https://github.com/Deivu/Ibuki/actions/runs/19212990662/artifacts/4513073111)
     - These downloads are directly linked from [Github Actions](https://github.com/Deivu/Ibuki/actions) latest run. You can always build the project if you don't want to download the binaries
 - Docker support will come in future
 
