@@ -1,7 +1,7 @@
 use super::player::{Connect, Destroy, Player, PlayerOptions};
 use crate::models::ApiVoiceData;
 use crate::util::errors::PlayerManagerError;
-use crate::ws::client::WebSocketClient;
+use crate::ws::client::{CreatePlayer, WebSocketClient};
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
 use kameo::actor::{ActorRef, Spawn};
@@ -58,7 +58,8 @@ impl PlayerManager {
             server_update: options.server_update,
             players: self.players.clone(),
         };
-        Player::spawn(options);
+        let player_ref = Player::spawn(options);
+        player_ref.wait_for_startup().await;
         Ok(())
     }
 

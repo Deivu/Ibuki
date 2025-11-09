@@ -5,13 +5,13 @@ pub mod global;
 
 #[derive(Deserialize, Debug)]
 pub struct PlayerMethodsPath {
-    pub session_id: u128,
+    pub session_id: String,
     pub guild_id: u64,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct SessionMethodsPath {
-    pub session_id: u128,
+    pub session_id: String,
 }
 
 #[derive(Deserialize, Debug)]

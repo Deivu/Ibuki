@@ -22,13 +22,6 @@ where
     se.serialize_str(num.to_string().as_str())
 }
 
-fn u128_to_str<S>(num: &u128, se: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    se.serialize_str(num.to_string().as_str())
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -301,11 +294,6 @@ pub struct ApiSessionBody {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSessionInfo {
-    #[serde(
-        rename = "resumingKey",
-        deserialize_with = "str_to_u64",
-        serialize_with = "u128_to_str"
-    )]
-    pub resuming_key: u128,
+    pub resuming_key: String,
     pub timeout: u16,
 }

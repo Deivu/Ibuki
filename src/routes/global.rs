@@ -35,7 +35,7 @@ pub async fn ws(
         user_id: UserId::from_u64(user_id),
         session_id: headers
             .get("Session-Id")
-            .and_then(|data| data.to_str().map_or(None, |data| data.parse::<u128>().ok())),
+            .and_then(|data| data.to_str().ok().map(String::from)),
     };
 
     tracing::info!(

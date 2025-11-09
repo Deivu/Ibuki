@@ -29,7 +29,7 @@ use serde_json::Value;
 use songbird::id::{GuildId, UserId};
 
 async fn get_client(
-    session_id: u128,
+    session_id: String,
 ) -> Option<RefMulti<'static, UserId, ActorRef<WebSocketClient>>> {
     for client in CLIENTS.iter() {
         let Some(data) = client.ask(GetWebsocketInfo).await.ok() else {
@@ -50,14 +50,14 @@ pub async fn get_player(
 ) -> Result<Response<Body>, EndpointError> {
     let client = get_client(session_id)
         .await
-        .ok_or(EndpointError::NotFound)?;
+        .ok_or(EndpointError::NoWebsocketClientFound)?;
 
     let player = client
         .ask(GetPlayer {
             guild_id: GuildId::from_u64(guild_id),
         })
         .await?
-        .ok_or(EndpointError::NotFound)?;
+        .ok_or(EndpointError::NoPlayerFound)?;
 
     let data = player.ask(GetApiPlayerInfo).await?;
 
@@ -76,7 +76,7 @@ pub async fn update_player(
 ) -> Result<Response<Body>, EndpointError> {
     let client = get_client(session_id)
         .await
-        .ok_or(EndpointError::NotFound)?;
+        .ok_or(EndpointError::NoWebsocketClientFound)?;
 
     let option_player = client
         .ask(GetPlayer {
@@ -85,7 +85,7 @@ pub async fn update_player(
         .await?;
 
     if option_player.is_none() && update_player.voice.is_none() {
-        return Err(EndpointError::NotFound);
+        return Err(EndpointError::NoPlayerAndVoiceUpdateFound);
     }
 
     if let Some(server_update) = update_player.voice {
@@ -103,7 +103,7 @@ pub async fn update_player(
             guild_id: GuildId::from_u64(guild_id),
         })
         .await?
-        .ok_or(EndpointError::NotFound)?;
+        .ok_or(EndpointError::NoPlayerFound)?;
 
     let mut stopped = false;
 
@@ -157,7 +157,7 @@ pub async fn destroy_player(
 ) -> Result<Response<Body>, EndpointError> {
     let client = get_client(session_id)
         .await
-        .ok_or(EndpointError::NotFound)?;
+        .ok_or(EndpointError::NoWebsocketClientFound)?;
 
     client
         .ask(DestroyPlayer {
@@ -175,7 +175,7 @@ pub async fn update_session(
 ) -> Result<Response<Body>, EndpointError> {
     let client = get_client(session_id)
         .await
-        .ok_or(EndpointError::NotFound)?;
+        .ok_or(EndpointError::NoWebsocketClientFound)?;
 
     let data = client
         .ask(UpdateWebsocket {

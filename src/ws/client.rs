@@ -9,7 +9,8 @@ use axum::Error;
 use axum::extract::ConnectInfo;
 use axum::extract::ws::{CloseFrame, Message as WsMessage, WebSocket};
 use futures::StreamExt;
-use kameo::actor::{ActorRef, Spawn};
+use kameo::actor::{ActorRef, Spawn, WeakActorRef};
+use kameo::error::ActorStopReason;
 use kameo::message::Context;
 use kameo::{Actor, Reply, messages};
 use songbird::id::{GuildId, UserId};
@@ -24,19 +25,19 @@ use uuid::Uuid;
 pub struct WebsocketRequestData {
     pub user_agent: String,
     pub user_id: UserId,
-    pub session_id: Option<u128>,
+    pub session_id: Option<String>,
 }
 
 #[derive(Reply, Clone, Debug)]
 pub struct WebSocketClientData {
-    pub session_id: u128,
+    pub session_id: String,
     pub resume: bool,
     pub timeout: u32,
 }
 
 pub struct WebSocketClient {
     user_id: UserId,
-    session_id: u128,
+    session_id: String,
     sender: Option<ActorRef<SenderActor>>,
     receiver: Option<ActorRef<ReceiverActor>>,
     player_manager: PlayerManager,
@@ -49,7 +50,7 @@ pub struct WebSocketClient {
 impl From<&WebSocketClient> for WebSocketClientData {
     fn from(value: &WebSocketClient) -> Self {
         Self {
-            session_id: value.session_id,
+            session_id: value.session_id.clone(),
             resume: value.resume.load(Ordering::Acquire),
             timeout: value.timeout.load(Ordering::Acquire),
         }
@@ -64,18 +65,36 @@ impl Actor for WebSocketClient {
         user_id: Self::Args,
         actor_ref: ActorRef<Self>,
     ) -> Result<WebSocketClient, Self::Error> {
-        Ok(Self {
+        let client = Self {
             user_id,
-            session_id: Uuid::new_v4().as_u128(),
+            session_id: Uuid::new_v4().as_u128().to_string(),
             sender: None,
             receiver: None,
+            // todo!() actor ref here can be a weak reference most likely
             player_manager: PlayerManager::new(actor_ref.clone(), user_id),
             message_queue: VecDeque::new(),
             resume: Arc::new(AtomicBool::new(false)),
             timeout: Arc::new(AtomicU32::new(30)),
             // todo!() im not sure if i want this or i can just link the receiver actor to this actor so if that dies, so is this
             dropped: Arc::new(AtomicBool::new(false)),
-        })
+        };
+        CLIENTS.insert(user_id, actor_ref);
+        tracing::info!("Started websocket client for [{}]", client.user_id);
+        Ok(client)
+    }
+
+    async fn on_stop(
+        &mut self,
+        _: WeakActorRef<Self>,
+        reason: ActorStopReason,
+    ) -> Result<(), Self::Error> {
+        CLIENTS.remove(&self.user_id);
+        tracing::info!(
+            "Stopped websocket client for [{}]({})",
+            self.user_id,
+            reason
+        );
+        Ok(())
     }
 }
 
@@ -91,7 +110,7 @@ impl WebSocketClient {
         &mut self,
         ctx: &mut Context<Self, bool>,
         socket: WebSocket,
-        session_id: Option<u128>,
+        session_id: Option<String>,
     ) -> bool {
         self.cleanup();
 
@@ -109,7 +128,7 @@ impl WebSocketClient {
         } else {
             let queue_length = self.message_queue.len();
             self.message_queue.clear();
-            self.session_id = Uuid::new_v4().as_u128();
+            self.session_id = Uuid::new_v4().as_u128().to_string();
 
             // todo!() disconnect_all and clear refactor soon for clearer code
             self.player_manager.destroy_all();
@@ -248,7 +267,7 @@ pub async fn handle_websocket_upgrade_request(
     let Some(client) = CLIENTS.get_mut(&data.user_id) else {
         let client = WebSocketClient::spawn(data.user_id);
 
-        CLIENTS.insert(data.user_id, client);
+        client.wait_for_startup().await;
 
         return Box::pin(handle_websocket_upgrade_request(socket, data, addr)).await;
     };
@@ -256,7 +275,7 @@ pub async fn handle_websocket_upgrade_request(
     match client
         .ask(EstablishConnection {
             socket,
-            session_id: data.session_id,
+            session_id: data.session_id.clone(),
         })
         .await
     {

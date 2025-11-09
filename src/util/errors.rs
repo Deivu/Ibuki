@@ -102,8 +102,14 @@ pub enum Base64EncodeError {
 pub enum EndpointError {
     #[error("Unauthorized")]
     Unauthorized,
-    #[error("Not found")]
-    NotFound,
+    #[error("No websocket client found for the session id provided")]
+    NoWebsocketClientFound,
+    #[error("No player found for the guild id provided")]
+    NoPlayerFound,
+    #[error(
+        "No player found for the guild id provided, and the supplied data is missing a voice update data"
+    )]
+    NoPlayerAndVoiceUpdateFound,
     #[error("Required option {0} missing in headers")]
     MissingOption(&'static str),
     #[error("Unprocessable Entity due to: {0}")]
@@ -192,7 +198,11 @@ impl IntoResponse for EndpointError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 resolver_error.to_string(),
             ),
-            EndpointError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
+            EndpointError::NoWebsocketClientFound => (StatusCode::NOT_FOUND, self.to_string()),
+            EndpointError::NoPlayerFound => (StatusCode::NOT_FOUND, self.to_string()),
+            EndpointError::NoPlayerAndVoiceUpdateFound => {
+                (StatusCode::BAD_REQUEST, self.to_string())
+            }
             EndpointError::Converter(converter_error) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 converter_error.to_string(),
