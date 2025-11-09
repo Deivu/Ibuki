@@ -26,8 +26,14 @@ md5 = "^0.8.0"
 blowfish = "^0.9.1"
 cbc = "^0.1.2"
 rand_agents = "^1.0.0"
-mimalloc = "0.1.48"
-kameo = { git = "https://github.com/tqwewe/kameo.git", rev = "abf132c2f369ac84f98aeedf789c64d71501d95e" }
+
+[dependencies.mimalloc]
+version = "0.1.48"
+features = ["v3"]
+
+[dependencies.kameo]
+git = "https://github.com/tqwewe/kameo.git"
+rev = "abf132c2f369ac84f98aeedf789c64d71501d95e"
 
 [dependencies.rustypipe]
 version = "^0.11.4"
