@@ -16,8 +16,7 @@ use crate::util::source::Sources;
 use crate::voice::manager::CreatePlayerOptions;
 use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetVolume, Stop};
 use crate::ws::client::{
-    CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket,
-    WebSocketClient,
+    CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
 };
 use axum::Json;
 use axum::body::Body;
