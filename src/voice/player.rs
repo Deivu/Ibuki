@@ -1,7 +1,7 @@
 use super::events::PlayerEvent;
 use crate::CONFIG;
 use crate::SCHEDULER;
-use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty};
+use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty, LavalinkFilters};
 use crate::util::decoder::decode_base64;
 use crate::util::errors::PlayerError;
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
@@ -61,7 +61,7 @@ pub struct Player {
     pub paused: bool,
     pub state: ApiPlayerState,
     pub voice: ApiVoiceData,
-    pub filters: Empty,
+    pub filters: LavalinkFilters,
     internal: PlayerInternal,
 }
 
@@ -124,7 +124,7 @@ impl Player {
             paused: false,
             state: Default::default(),
             voice: options.server_update.clone(),
-            filters: Empty,
+            filters: Default::default(),
             internal: PlayerInternal {
                 actor_ref,
                 user_id: options.user_id,

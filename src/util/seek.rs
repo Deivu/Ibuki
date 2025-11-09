@@ -88,11 +88,8 @@ impl<T: ChunkTransform> Read for SeekableSource<T> {
 
         let chunk_size = self.transform.chunk_size();
         let start_index = downloaded.len();
-
         let init_size = start_index + chunk_size;
-        if downloaded.len() < init_size {
-            downloaded.reserve(init_size - downloaded.capacity());
-        }
+
         downloaded.resize(init_size, 0);
 
         let mut total_read = 0;
