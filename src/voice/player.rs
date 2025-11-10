@@ -39,14 +39,14 @@ struct PlayerInternal {
     pub actor_ref: WeakActorRef<Player>,
     pub user_id: UserId,
     pub active: bool,
-    pub websocket: ActorRef<WebSocketClient>,
+    pub websocket: WeakActorRef<WebSocketClient>,
     pub driver: Option<Driver>,
     pub handle: Option<TrackHandle>,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
 }
 
 pub struct PlayerOptions {
-    pub websocket: ActorRef<WebSocketClient>,
+    pub websocket: WeakActorRef<WebSocketClient>,
     pub config: Option<SongbirdConfig>,
     pub user_id: UserId,
     pub guild_id: GuildId,
@@ -391,12 +391,10 @@ impl Player {
 
     #[message]
     pub async fn send_to_player_websocket(&self, message: Message) {
-        let Err(error) = self
-            .internal
-            .websocket
-            .ask(SendConnectionMessage { message })
-            .await
-        else {
+        let Some(actor_ref) = self.internal.websocket.upgrade() else {
+            return;
+        };
+        let Err(error) = actor_ref.ask(SendConnectionMessage { message }).await else {
             return;
         };
         tracing::warn!(

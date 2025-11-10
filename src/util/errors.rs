@@ -1,8 +1,35 @@
 use axum::body::Body;
 use axum::http::{self, StatusCode};
 use axum::response::{IntoResponse, Response};
+use kameo::error::HookError;
 use kameo::prelude::SendError;
+use std::sync::Arc;
 use thiserror::Error;
+
+macro_rules! impl_send_error_for {
+    ($($ty:ty),+) => {
+        $(impl<M, E> From<SendError<M, E>> for $ty
+        where
+            E: std::fmt::Debug,
+        {
+            fn from(error: SendError<M, E>) -> Self {
+                Self::FailedMessage(format!("{:?}", error))
+            }
+        })+
+    }
+}
+
+macro_rules! impl_arc_error_for {
+    ($enum:ty { $($variant:ident => $err:ty),+ $(,)? }) => {
+        $(
+            impl From<$err> for $enum {
+                fn from(err: $err) -> Self {
+                    Self::$variant(std::sync::Arc::new(err))
+                }
+            }
+        )+
+    };
+}
 
 #[derive(Error, Debug)]
 pub enum ConverterError {
@@ -62,7 +89,7 @@ pub enum PlayerManagerError {
     MissingConnection,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum PlayerError {
     #[error("A driver is required to execute this action")]
     MissingDriver,
@@ -71,13 +98,13 @@ pub enum PlayerError {
     #[error("Failed to send a message to a task: {0}")]
     FailedMessage(String),
     #[error(transparent)]
-    Base64Decode(#[from] Base64DecodeError),
+    Base64Decode(#[from] Arc<Base64DecodeError>),
     #[error(transparent)]
-    Connection(#[from] songbird::error::ConnectionError),
+    Connection(#[from] Arc<songbird::error::ConnectionError>),
     #[error(transparent)]
-    Resolver(#[from] ResolverError),
+    Resolver(#[from] Arc<ResolverError>),
     #[error(transparent)]
-    Control(#[from] songbird::error::ControlError),
+    Control(#[from] Arc<songbird::error::ControlError>),
 }
 
 #[derive(Error, Debug)]
@@ -136,30 +163,20 @@ pub enum EndpointError {
     PlayerError(#[from] PlayerError),
 }
 
-impl<M, E> From<SendError<M, E>> for EndpointError
-where
-    E: std::fmt::Debug,
-{
-    fn from(error: SendError<M, E>) -> Self {
-        Self::FailedMessage(format!("{:?}", error))
-    }
-}
+impl_send_error_for!(EndpointError, PlayerError, PlayerManagerError);
+impl_arc_error_for!(PlayerError {
+    Base64Decode => Base64DecodeError,
+    Connection   => songbird::error::ConnectionError,
+    Resolver     => ResolverError,
+    Control      => songbird::error::ControlError,
+});
 
-impl<M, E> From<SendError<M, E>> for PlayerError
-where
-    E: std::fmt::Debug,
-{
-    fn from(error: SendError<M, E>) -> Self {
-        Self::FailedMessage(format!("{:?}", error))
-    }
-}
-
-impl<M, E> From<SendError<M, E>> for PlayerManagerError
-where
-    E: std::fmt::Debug,
-{
-    fn from(error: SendError<M, E>) -> Self {
-        Self::FailedMessage(format!("{:?}", error))
+impl From<HookError<PlayerError>> for PlayerManagerError {
+    fn from(error: HookError<PlayerError>) -> Self {
+        match error {
+            HookError::Panicked(panic) => Self::FailedMessage(panic.to_string()),
+            HookError::Error(error) => Self::Player(error),
+        }
     }
 }
 

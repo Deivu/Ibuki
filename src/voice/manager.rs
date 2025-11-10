@@ -1,10 +1,10 @@
 use super::player::{Connect, Destroy, Player, PlayerOptions};
 use crate::models::ApiVoiceData;
 use crate::util::errors::PlayerManagerError;
-use crate::ws::client::{CreatePlayer, WebSocketClient};
+use crate::ws::client::WebSocketClient;
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
-use kameo::actor::{ActorRef, Spawn};
+use kameo::actor::{ActorRef, Spawn, WeakActorRef};
 use songbird::Config;
 use songbird::id::{GuildId, UserId};
 use std::sync::Arc;
@@ -18,11 +18,11 @@ pub struct CreatePlayerOptions {
 pub struct PlayerManager {
     pub user_id: UserId,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
-    websocket: ActorRef<WebSocketClient>,
+    websocket: WeakActorRef<WebSocketClient>,
 }
 
 impl PlayerManager {
-    pub fn new(websocket: ActorRef<WebSocketClient>, user_id: UserId) -> Self {
+    pub fn new(websocket: WeakActorRef<WebSocketClient>, user_id: UserId) -> Self {
         Self {
             user_id,
             websocket,
@@ -58,8 +58,7 @@ impl PlayerManager {
             server_update: options.server_update,
             players: self.players.clone(),
         };
-        let player_ref = Player::spawn(options);
-        player_ref.wait_for_startup().await;
+        Player::spawn(options).wait_for_startup_result().await?;
         Ok(())
     }
 

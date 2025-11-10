@@ -70,8 +70,7 @@ impl Actor for WebSocketClient {
             session_id: Uuid::new_v4().as_u128().to_string(),
             sender: None,
             receiver: None,
-            // todo!() actor ref here can be a weak reference most likely
-            player_manager: PlayerManager::new(actor_ref.clone(), user_id),
+            player_manager: PlayerManager::new(actor_ref.downgrade(), user_id),
             message_queue: VecDeque::new(),
             resume: Arc::new(AtomicBool::new(false)),
             timeout: Arc::new(AtomicU32::new(30)),
