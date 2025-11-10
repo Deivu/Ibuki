@@ -223,9 +223,11 @@ async fn create_tasks() {
                 .map(|client| {
                     let message = serialized.clone();
                     async move {
-                        let _ = client.tell(SendConnectionMessage {
-                            message: message.into(),
-                        });
+                        let _ = client
+                            .tell(SendConnectionMessage {
+                                message: message.into(),
+                            })
+                            .await;
                     }
                 })
                 .collect::<JoinSet<()>>();
