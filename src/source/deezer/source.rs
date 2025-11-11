@@ -15,6 +15,7 @@ use crate::util::errors::ResolverError;
 use crate::util::source::Query;
 use crate::util::source::Source;
 use crate::util::url::is_url;
+use async_trait::async_trait;
 use regex::Regex;
 use reqwest::Body;
 use reqwest::Client;
@@ -32,16 +33,8 @@ pub struct Deezer {
     search_prefixes: (&'static str, &'static str, &'static str),
 }
 
+#[async_trait]
 impl Source for Deezer {
-    fn new(client: Option<Client>) -> Self {
-        Self {
-            client: client.unwrap_or_default(),
-            tokens: Arc::new(Mutex::new(None)),
-            regex: Regex::new("(https?://)?(www\\.)?deezer\\.com/(?<countrycode>[a-zA-Z]{2}/)?(?<type>track|album|playlist|artist)/(?<identifier>[0-9]+)").expect("Failed to init RegEx"),
-            search_prefixes: ("dzsearch:", "dzisrc:", "dzrec:"),
-        }
-    }
-
     fn get_name(&self) -> &'static str {
         "deezer"
     }
@@ -65,6 +58,11 @@ impl Source for Deezer {
         self.regex.captures(query)?;
 
         Some(Query::Url(query.to_string()))
+    }
+
+    async fn init(&self) -> Result<(), ResolverError> {
+        self.get_token().await?;
+        Ok(())
     }
 
     async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
@@ -241,8 +239,13 @@ impl Source for Deezer {
 }
 
 impl Deezer {
-    pub async fn init(&self) {
-        self.get_token().await.unwrap();
+    pub fn new(client: Option<Client>) -> Self {
+        Self {
+            client: client.unwrap_or_default(),
+            tokens: Arc::new(Mutex::new(None)),
+            regex: Regex::new("(https?://)?(www\\.)?deezer\\.com/(?<countrycode>[a-zA-Z]{2}/)?(?<type>track|album|playlist|artist)/(?<identifier>[0-9]+)").expect("Failed to init RegEx"),
+            search_prefixes: ("dzsearch:", "dzisrc:", "dzrec:"),
+        }
     }
 
     fn get_track_key(&self, id: String) -> [u8; 16] {

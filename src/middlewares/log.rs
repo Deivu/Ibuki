@@ -12,7 +12,10 @@ pub async fn request(
     request: Request,
     next: Next,
 ) -> Result<Response<Body>, EndpointError> {
-    tracing::info!("Received a request! [Endpoint: {}]", request.uri());
-
+    tracing::info!(
+        "Received a request: [Method: {}] [Endpoint: {}]",
+        request.method(),
+        request.uri()
+    );
     Ok(next.run(request).await)
 }

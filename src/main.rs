@@ -5,7 +5,7 @@ use crate::source::http::Http;
 use crate::source::youtube::Youtube;
 use crate::util::config::Config;
 use crate::util::headers::generate_headers;
-use crate::util::source::{Source, Sources};
+use crate::util::source::{FixAsyncTraitSource, Source};
 use crate::util::task::{AddTask, TasksManager};
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use axum::Router;
@@ -46,7 +46,7 @@ static ALLOCATOR: Cap<MiMalloc> = Cap::new(MiMalloc, usize::MAX);
 static CONFIG: LazyLock<Config> = LazyLock::new(Config::new);
 static SCHEDULER: LazyLock<Scheduler> = LazyLock::new(Scheduler::default);
 static CLIENTS: LazyLock<DashMap<UserId, ActorRef<WebSocketClient>>> = LazyLock::new(DashMap::new);
-static SOURCES: LazyLock<DashMap<String, Sources>> = LazyLock::new(DashMap::new);
+static SOURCES: LazyLock<DashMap<String, FixAsyncTraitSource>> = LazyLock::new(DashMap::new);
 static TASKS: LazyLock<TasksManager<String>> = LazyLock::new(TasksManager::default);
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 static REQWEST: LazyLock<Client> = LazyLock::new(|| {
@@ -80,36 +80,13 @@ async fn main() {
     LazyLock::force(&REQWEST);
 
     if CONFIG.youtube_config.is_some() {
-        let src_name = String::from("Youtube");
-
-        SOURCES.insert(
-            src_name.to_lowercase(),
-            Sources::Youtube(Youtube::new(Some(REQWEST.clone()))),
-        );
-
-        tracing::info!("Registered [{}] into sources list", src_name);
+        register_source!(Youtube, Some(REQWEST.clone()));
     }
-
     if CONFIG.deezer_config.is_some() {
-        let src_name = String::from("Deezer");
-        let client = Deezer::new(Some(REQWEST.clone()));
-
-        client.init().await;
-
-        SOURCES.insert(src_name.to_lowercase(), Sources::Deezer(client));
-
-        tracing::info!("Registered [{}] into sources list", src_name);
+        register_source!(Deezer, Some(REQWEST.clone()));
     }
-
     if CONFIG.http_config.is_some() {
-        let src_name = String::from("HTTP");
-
-        SOURCES.insert(
-            src_name.to_lowercase(),
-            Sources::Http(Http::new(Some(REQWEST.clone()))),
-        );
-
-        tracing::info!("Registered [{}] into sources list", src_name);
+        register_source!(Http, Some(REQWEST.clone()));
     }
 
     create_tasks().await;

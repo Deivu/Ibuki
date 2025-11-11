@@ -1,4 +1,4 @@
-use super::player::{Connect, Destroy, Player, PlayerOptions};
+use super::player::{Connect, Player, PlayerOptions};
 use crate::models::ApiVoiceData;
 use crate::util::errors::PlayerManagerError;
 use crate::ws::client::WebSocketClient;
@@ -15,6 +15,7 @@ pub struct CreatePlayerOptions {
     pub config: Option<Config>,
 }
 
+/// Possible race condition here, still thinking for a fix
 pub struct PlayerManager {
     pub user_id: UserId,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
@@ -38,10 +39,8 @@ impl PlayerManager {
         &self,
         options: CreatePlayerOptions,
     ) -> Result<(), PlayerManagerError> {
-        if self.players.contains_key(&options.guild_id) {
-            let Some(player) = self.players.get(&options.guild_id) else {
-                return Err(PlayerManagerError::MissingPlayer);
-            };
+        if let Some(player) = self.get_player(&options.guild_id) {
+            player.wait_for_startup_result().await?;
             player
                 .ask(Connect {
                     server_update: options.server_update,
@@ -63,12 +62,7 @@ impl PlayerManager {
     }
 
     pub async fn destroy_player(&self, guild_id: &GuildId) {
-        let Some(player) = self.get_player(guild_id) else {
-            return;
-        };
-        if player.ask(Destroy).await.is_err() {
-            player.kill();
-        }
+        self.players.remove(guild_id);
     }
 
     pub fn destroy_all(&self) {

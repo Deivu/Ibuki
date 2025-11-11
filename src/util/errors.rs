@@ -55,6 +55,8 @@ pub enum ResolverError {
     MissingRequiredData(&'static str),
     #[error("Response received is not ok [{0}]")]
     FailedStatusCode(String),
+    #[error("Source {0} is not supported")]
+    InvalidSource(String),
     #[error("{0}")]
     Custom(String),
     #[error(transparent)]

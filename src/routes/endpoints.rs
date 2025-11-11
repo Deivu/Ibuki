@@ -11,8 +11,6 @@ use crate::models::{
 use crate::util::converter::numbers::FromU64;
 use crate::util::decoder::decode_base64;
 use crate::util::errors::EndpointError;
-use crate::util::source::Source;
-use crate::util::source::Sources;
 use crate::voice::manager::CreatePlayerOptions;
 use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetVolume, Stop};
 use crate::ws::client::{
@@ -210,41 +208,18 @@ pub async fn decode(query: Query<DecodeQueryString>) -> Result<Response<Body>, E
 
 #[tracing::instrument]
 pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, EndpointError> {
-    let track: ApiTrackResult = {
-        let mut result: Option<ApiTrackResult> = None;
+    let mut track = ApiTrackResult::Empty(None);
 
-        for source in SOURCES.iter() {
-            match source.value() {
-                Sources::Youtube(src) => {
-                    let option = src.parse_query(&query.identifier);
-
-                    if let Some(query) = option {
-                        result = src.resolve(query).await?;
-                    }
-                }
-                Sources::Deezer(src) => {
-                    let option = src.parse_query(&query.identifier);
-
-                    if let Some(query) = option {
-                        result = src.resolve(query).await?;
-                    }
-                }
-                Sources::Http(src) => {
-                    let option = src.parse_query(&query.identifier);
-
-                    if let Some(query) = option {
-                        result = src.resolve(query).await?;
-                    }
-                }
-            }
-
-            if result.is_some() {
-                break;
-            }
-        }
-
-        result.unwrap_or(ApiTrackResult::Empty(None))
-    };
+    for source in SOURCES.iter() {
+        let Some(data) = source.to_inner_ref().parse_query(&query.identifier) else {
+            continue;
+        };
+        track = source
+            .to_inner_ref()
+            .resolve(data)
+            .await?
+            .unwrap_or(ApiTrackResult::Empty(None));
+    }
 
     let string = serde_json::to_string_pretty(&track)?;
 

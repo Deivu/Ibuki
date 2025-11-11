@@ -5,6 +5,7 @@ use crate::util::seek::SeekableSource;
 use crate::util::source::Query;
 use crate::util::source::Source;
 use crate::util::url::is_url;
+use async_trait::async_trait;
 use reqwest::Client;
 use songbird::input::{AuxMetadata, Compose, HttpRequest, Input, LiveInput};
 use songbird::tracks::Track;
@@ -15,13 +16,8 @@ pub struct Http {
     client: Client,
 }
 
+#[async_trait]
 impl Source for Http {
-    fn new(client: Option<Client>) -> Self {
-        Self {
-            client: client.unwrap_or_default(),
-        }
-    }
-
     fn get_name(&self) -> &'static str {
         "http"
     }
@@ -36,6 +32,10 @@ impl Source for Http {
         }
 
         Some(Query::Url(query.to_string()))
+    }
+
+    async fn init(&self) -> Result<(), ResolverError> {
+        Ok(())
     }
 
     async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
@@ -101,6 +101,12 @@ impl Source for Http {
 }
 
 impl Http {
+    pub fn new(client: Option<Client>) -> Self {
+        Self {
+            client: client.unwrap_or_default(),
+        }
+    }
+
     fn make_track(&self, metadata: AuxMetadata) -> ApiTrackInfo {
         let identifier = metadata
             .source_url

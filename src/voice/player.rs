@@ -72,7 +72,7 @@ impl Actor for Player {
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let player = Player::new(args, actor_ref.downgrade()).await?;
         player.internal.players.insert(player.guild_id, actor_ref);
-        tracing::debug!("New player task spawned for guild [{}]", player.guild_id);
+        tracing::debug!("New Player Task spawned for GuildId: [{}]", player.guild_id);
         Ok(player)
     }
 
@@ -89,7 +89,7 @@ impl Actor for Player {
         self.internal.active = false;
         self.internal.players.remove(&self.guild_id);
         tracing::debug!(
-            "Stopped player task for guild [{}]({})",
+            "Stopped and cleaned up the Player Task for GuildId: [{}] Reason: [{}]",
             self.guild_id,
             reason
         );

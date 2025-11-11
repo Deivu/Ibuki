@@ -78,7 +78,10 @@ impl Actor for WebSocketClient {
             dropped: Arc::new(AtomicBool::new(false)),
         };
         CLIENTS.insert(user_id, actor_ref);
-        tracing::info!("Started websocket client for [{}]", client.user_id);
+        tracing::info!(
+            "Websocket client created and started with UserId: [{}]",
+            client.user_id
+        );
         Ok(client)
     }
 
@@ -89,7 +92,7 @@ impl Actor for WebSocketClient {
     ) -> Result<(), Self::Error> {
         CLIENTS.remove(&self.user_id);
         tracing::info!(
-            "Stopped websocket client for [{}]({})",
+            "Websocket client deleted and stopped with UserId: [{}] Reason: [{}]",
             self.user_id,
             reason
         );
@@ -120,7 +123,7 @@ impl WebSocketClient {
 
         if resumed {
             tracing::info!(
-                "WebSocket connection resumed [SessionId: {}], replaying {} messages",
+                "Resuming websocket connection with [SessionId: {}], replaying {} messages",
                 self.session_id,
                 self.message_queue.len()
             );
@@ -133,7 +136,7 @@ impl WebSocketClient {
             self.player_manager.destroy_all();
 
             tracing::info!(
-                "WebSocket connection identified [SessionId: {}], dropped {} messages",
+                "Re-ident websocket connection with [SessionId: {}], dropped {} messages",
                 self.session_id,
                 queue_length
             );
@@ -183,6 +186,11 @@ impl WebSocketClient {
             .tell(SendToWebsocket(WsMessage::Text(serialized.into())))
             .await
             .ok();
+
+        tracing::info!(
+            "WebSocket connection established [SessionId: {}]",
+            self.session_id
+        );
 
         resumed
     }
@@ -263,7 +271,7 @@ pub async fn handle_websocket_upgrade_request(
     data: WebsocketRequestData,
     addr: ConnectInfo<SocketAddr>,
 ) {
-    let Some(client) = CLIENTS.get_mut(&data.user_id) else {
+    let Some(client) = CLIENTS.get(&data.user_id).map(|c| c.clone()) else {
         let client = WebSocketClient::spawn(data.user_id);
 
         client.wait_for_startup().await;
@@ -289,7 +297,8 @@ pub async fn handle_websocket_upgrade_request(
             );
         }
         Err(error) => {
-            // todo: probably remove the client here?
+            client.kill();
+            client.wait_for_shutdown().await;
             tracing::warn!(
                 "Connection was not handled properly from: {}. [SessionId: {:?}] [UserId: {}] [UserAgent: {}] [Error: {:?}]",
                 addr.ip(),
@@ -307,10 +316,7 @@ pub fn handle_websocket_upgrade_error(
     data: WebsocketRequestData,
     addr: ConnectInfo<SocketAddr>,
 ) {
-    let session_id = data
-        .session_id
-        .map(|id| id.to_string())
-        .unwrap_or("None".to_owned());
+    let session_id = data.session_id.unwrap_or("None".to_owned());
 
     tracing::warn!(
         "Websocket Upgrade errored from: {}. [SessionId: {}] [UserId: {}] [UserAgent: {}] [Error: {:?}]",
