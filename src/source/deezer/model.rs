@@ -1,7 +1,36 @@
 #![allow(dead_code, unused)]
 use crate::CONFIG;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use tokio::time::Instant;
+
+/// Deezer API sometimes returns integer 0 where a string is expected.
+/// This deserializer handles both cases gracefully.
+fn string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    match value {
+        Value::String(s) => Ok(s),
+        Value::Number(n) => Ok(n.to_string()),
+        Value::Null => Ok(String::new()),
+        other => Ok(other.to_string()),
+    }
+}
+
+fn optional_string_or_number<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    match value {
+        Value::Null => Ok(None),
+        Value::String(s) => Ok(Some(s)),
+        Value::Number(n) => Ok(Some(n.to_string())),
+        other => Ok(Some(other.to_string())),
+    }
+}
 
 pub enum DeezerQuality {
     Flac,
@@ -207,35 +236,35 @@ pub struct InteralDeezerMedia {
 pub struct InternalDeezerGetUserData {
     #[serde(rename = "USER")]
     pub user: InternalDeezerUser,
-    #[serde(rename = "SETTING_LANG")]
+    #[serde(rename = "SETTING_LANG", deserialize_with = "string_or_number")]
     pub setting_lang: String,
-    #[serde(rename = "SETTING_LOCALE")]
+    #[serde(rename = "SETTING_LOCALE", deserialize_with = "string_or_number")]
     pub setting_locale: String,
-    #[serde(rename = "DIRECTION")]
+    #[serde(rename = "DIRECTION", deserialize_with = "string_or_number")]
     pub direction: String,
-    #[serde(rename = "SESSION_ID")]
+    #[serde(rename = "SESSION_ID", deserialize_with = "string_or_number")]
     pub session_id: String,
-    #[serde(rename = "USER_TOKEN")]
+    #[serde(rename = "USER_TOKEN", deserialize_with = "string_or_number")]
     pub user_token: String,
-    #[serde(rename = "PLAYLIST_WELCOME_ID")]
+    #[serde(rename = "PLAYLIST_WELCOME_ID", deserialize_with = "string_or_number")]
     pub playlist_welcome_id: String,
-    #[serde(rename = "COUNTRY")]
+    #[serde(rename = "COUNTRY", deserialize_with = "string_or_number")]
     pub country: String,
-    #[serde(rename = "COUNTRY_CATEGORY")]
+    #[serde(rename = "COUNTRY_CATEGORY", deserialize_with = "string_or_number")]
     pub country_category: String,
     #[serde(rename = "SERVER_TIMESTAMP")]
     pub server_timestamp: i64,
-    #[serde(rename = "PLAYER_TOKEN")]
+    #[serde(rename = "PLAYER_TOKEN", deserialize_with = "string_or_number")]
     pub player_token: String,
-    #[serde(rename = "checkForm")]
+    #[serde(rename = "checkForm", deserialize_with = "string_or_number")]
     pub check_form: String,
-    #[serde(rename = "FROM_ONBOARDING")]
+    #[serde(rename = "FROM_ONBOARDING", deserialize_with = "string_or_number")]
     pub from_onboarding: String,
-    #[serde(rename = "CUSTO")]
+    #[serde(rename = "CUSTO", deserialize_with = "string_or_number")]
     pub custo: String,
-    #[serde(rename = "SETTING_REFERER_UPLOAD")]
+    #[serde(rename = "SETTING_REFERER_UPLOAD", deserialize_with = "string_or_number")]
     pub setting_referer_upload: String,
-    #[serde(rename = "URL_MEDIA")]
+    #[serde(rename = "URL_MEDIA", deserialize_with = "string_or_number")]
     pub url_media: String,
 }
 
@@ -243,58 +272,87 @@ pub struct InternalDeezerGetUserData {
 pub struct InternalDeezerUser {
     #[serde(rename = "USER_ID")]
     pub user_id: i64,
-    #[serde(rename = "INSCRIPTION_DATE")]
+    #[serde(rename = "INSCRIPTION_DATE", deserialize_with = "string_or_number")]
     pub inscription_date: String,
     #[serde(rename = "OPTIONS")]
     pub options: InternalDeezerOptions,
-    #[serde(rename = "EXPLICIT_CONTENT_LEVEL")]
+    #[serde(rename = "EXPLICIT_CONTENT_LEVEL", default, deserialize_with = "optional_string_or_number")]
     pub explicit_content_level: Option<String>,
-    #[serde(rename = "EXPLICIT_CONTENT_LEVELS_AVAILABLE")]
+    #[serde(rename = "EXPLICIT_CONTENT_LEVELS_AVAILABLE", default)]
     pub explicit_content_levels_available: Option<Vec<String>>,
-    #[serde(rename = "HAS_UPNEXT")]
+    #[serde(rename = "HAS_UPNEXT", default)]
     pub has_upnext: bool,
-    #[serde(rename = "LOVEDTRACKS_ID")]
+    #[serde(rename = "LOVEDTRACKS_ID", deserialize_with = "string_or_number")]
     pub lovedtracks_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct InternalDeezerOptions {
+    #[serde(default)]
     pub mobile_radio: bool,
+    #[serde(default)]
     pub mobile_offline: bool,
+    #[serde(default)]
     pub mobile_sound_quality: InternalDeezerOptionSoundQuality,
+    #[serde(default)]
     pub mobile_hq: bool,
+    #[serde(default)]
     pub mobile_lossless: bool,
+    #[serde(default)]
     pub tablet_sound_quality: InternalDeezerOptionSoundQuality,
+    #[serde(default)]
     pub web_hq: bool,
+    #[serde(default)]
     pub web_lossless: bool,
+    #[serde(default)]
     pub web_sound_quality: InternalDeezerOptionSoundQuality,
+    #[serde(default)]
     pub license_token: String,
+    #[serde(default)]
     pub expiration_timestamp: i64,
+    #[serde(default, deserialize_with = "string_or_number")]
     pub license_country: String,
+    #[serde(default)]
     pub timestamp: i64,
+    #[serde(default)]
     pub audio_qualities: InternalDeezerOptionAudioQualities,
+    #[serde(default)]
     pub hq: bool,
+    #[serde(default)]
     pub lossless: bool,
+    #[serde(default)]
     pub offline: bool,
+    #[serde(default)]
     pub preview: bool,
+    #[serde(default)]
     pub radio: bool,
+    #[serde(default)]
     pub sound_quality: InternalDeezerOptionSoundQuality,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct InternalDeezerOptionSoundQuality {
+    #[serde(default)]
     pub low: Option<bool>,
+    #[serde(default)]
     pub standard: bool,
+    #[serde(default)]
     pub high: bool,
+    #[serde(default)]
     pub lossless: bool,
+    #[serde(default)]
     pub reality: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct InternalDeezerOptionAudioQualities {
+    #[serde(default)]
     pub mobile_download: Vec<String>,
+    #[serde(default)]
     pub mobile_streaming: Vec<String>,
+    #[serde(default)]
     pub wifi_download: Vec<String>,
+    #[serde(default)]
     pub wifi_streaming: Vec<String>,
 }
 
@@ -308,7 +366,8 @@ pub struct InternalDeezerResponseError {
 
 #[derive(Deserialize, Debug)]
 pub struct InternalDeezerResponse<T> {
-    pub error: Vec<InternalDeezerResponseError>,
+    #[serde(default)]
+    pub error: Value,
     pub results: T,
 }
 
