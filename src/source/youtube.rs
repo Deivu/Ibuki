@@ -175,14 +175,14 @@ impl Source for Youtube {
                 }
             }
             Query::Search(input) => {
-                let Some(term) = input
-                    .strip_prefix("ytsearch")
-                    .or(input.strip_prefix("ytmsearch"))
-                else {
-                    return Ok(None);
-                };
-
-                let (prefix, _) = input.split_at(term.len() - input.len());
+                let (prefix, term) =
+                    if let Some(rest) = input.strip_prefix("ytmsearch:") {
+                        ("ytmsearch", rest)
+                    } else if let Some(rest) = input.strip_prefix("ytsearch:") {
+                        ("ytsearch", rest)
+                    } else {
+                        return Ok(None);
+                    };
 
                 match prefix {
                     "ytsearch" => {

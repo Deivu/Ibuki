@@ -225,3 +225,37 @@ pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, E
 
     Ok(Response::new(Body::from(string)))
 }
+
+pub async fn node_info() -> Result<Response<Body>, EndpointError> {
+    let sources: Vec<String> = SOURCES.iter().map(|entry| entry.key().clone()).collect();
+
+    let info = serde_json::json!({
+        "version": {
+            "semver": "4.0.0",
+            "major": 4,
+            "minor": 0,
+            "patch": 0,
+            "preRelease": null,
+            "build": null
+        },
+        "buildTime": 0,
+        "git": {
+            "branch": "main",
+            "commit": "unknown",
+            "commitTime": 0
+        },
+        "jvm": "N/A (Rust)",
+        "lavaplayer": "N/A (symphonia)",
+        "sourceManagers": sources,
+        "filters": [],
+        "plugins": [],
+        "isNodelink": false
+    });
+
+    let string = serde_json::to_string_pretty(&info)?;
+
+    Ok(Response::builder()
+        .header("Content-Type", "application/json")
+        .body(Body::from(string))
+        .unwrap())
+}

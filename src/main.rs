@@ -94,6 +94,10 @@ async fn main() {
     let app = Router::new()
         .route("/v{version}/websocket", routing::any(routes::global::ws))
         .route(
+            "/v{version}/info",
+            routing::get(routes::endpoints::node_info),
+        )
+        .route(
             "/v{version}/decodetrack",
             routing::get(routes::endpoints::decode),
         )
@@ -123,7 +127,18 @@ async fn main() {
                 .layer(from_fn(middlewares::auth::authenticate))
                 .layer(from_fn(middlewares::log::request)),
         )
-        .route("/", routing::get(routes::global::landing));
+        .route("/", routing::get(routes::global::landing))
+        .fallback(|request: axum::extract::Request| async move {
+            tracing::warn!(
+                "Unmatched request: [Method: {}] [URI: {}]",
+                request.method(),
+                request.uri()
+            );
+            (
+                axum::http::StatusCode::NOT_FOUND,
+                format!("Not Found: {} {}", request.method(), request.uri()),
+            )
+        });
 
     let listener = net::TcpListener::bind(format!("{}:{}", CONFIG.address, CONFIG.port))
         .await
