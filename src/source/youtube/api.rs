@@ -1,3 +1,4 @@
+use std::time::Duration;
 use reqwest::{Client, Url};
 use serde_json::{json, Value};
 use tracing::error;
@@ -15,9 +16,9 @@ impl InnertubeApi {
     pub fn new() -> Self {
         Self {
             http: Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
+                .timeout(Duration::from_secs(10))
                 .build()
-                .unwrap(),
+                .expect("Failed to build HTTP client"),
         }
     }
 
