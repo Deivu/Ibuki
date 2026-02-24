@@ -1,8 +1,15 @@
 #![recursion_limit = "256"]
 use crate::models::{ApiCpu, ApiMemory, ApiNodeMessage, ApiStats};
+use crate::source::amazonmusic::source::AmazonMusic;
+use crate::source::applemusic::source::AppleMusic;
 use crate::source::deezer::source::Deezer;
+// use crate::source::gaana::source::Gaana;
 use crate::source::http::Http;
-use crate::source::youtube::Youtube;
+use crate::source::jiosaavn::source::JioSaavn;
+use crate::source::soundcloud::source::SoundCloud;
+use crate::source::spotify::source::Spotify;
+use crate::source::songlink::source::Songlink;
+use crate::source::youtube::source::Youtube;
 use crate::util::config::Config;
 use crate::util::headers::generate_headers;
 use crate::util::source::{FixAsyncTraitSource, Source};
@@ -34,7 +41,9 @@ use tracing_subscriber::fmt;
 
 mod constants;
 mod middlewares;
+mod filters;
 mod models;
+mod playback;
 mod routes;
 mod source;
 mod util;
@@ -85,8 +94,29 @@ async fn main() {
     if CONFIG.deezer_config.is_some() {
         register_source!(Deezer, Some(REQWEST.clone()));
     }
+    if CONFIG.jiosaavn_config.is_some() {
+        register_source!(JioSaavn, Some(REQWEST.clone()));
+    }
+    // if CONFIG.gaana_config.is_some() {
+    //     register_source!(Gaana, Some(REQWEST.clone()));
+    // }
     if CONFIG.http_config.is_some() {
         register_source!(Http, Some(REQWEST.clone()));
+    }
+    if CONFIG.spotify_config.is_some() {
+        register_source!(Spotify, Some(REQWEST.clone()));
+    }
+    if CONFIG.songlink_config.is_some() {
+        register_source!(Songlink, Some(REQWEST.clone()));
+    }
+    if CONFIG.amazonmusic_config.is_some() {
+        register_source!(AmazonMusic, Some(REQWEST.clone()));
+    }
+    if CONFIG.applemusic_config.is_some() {
+        register_source!(AppleMusic, Some(REQWEST.clone()), CONFIG.applemusic_config.as_ref());
+    }
+    if CONFIG.soundcloud_config.is_some() {
+        register_source!(SoundCloud, Some(REQWEST.clone()), CONFIG.soundcloud_config.as_ref());
     }
 
     create_tasks().await;

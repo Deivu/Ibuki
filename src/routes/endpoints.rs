@@ -9,10 +9,10 @@ use crate::models::{
     ApiPlayerOptions, ApiSessionBody, ApiSessionInfo, ApiTrack, ApiTrackResult, Empty,
 };
 use crate::util::converter::numbers::FromU64;
-use crate::util::decoder::decode_base64;
+use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::EndpointError;
 use crate::voice::manager::CreatePlayerOptions;
-use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetVolume, Stop};
+use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetFilters, SetVolume, Stop};
 use crate::ws::client::{
     CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
 };
@@ -82,14 +82,20 @@ pub async fn update_player(
         })
         .await?;
 
-    if option_player.is_none() && update_player.voice.is_none() {
-        return Err(EndpointError::NoPlayerAndVoiceUpdateFound);
-    }
-
-    if let Some(server_update) = update_player.voice {
+    // Create player if it doesn't exist (with or without voice connection)
+    if option_player.is_none() {
         let options = CreatePlayerOptions {
             guild_id: GuildId::from_u64(guild_id),
-            server_update,
+            server_update: update_player.voice.clone(),
+            config: None,
+        };
+
+        client.ask(CreatePlayer { options }).await?;
+    } else if let Some(server_update) = update_player.voice {
+        // If player exists, update voice connection if provided
+        let options = CreatePlayerOptions {
+            guild_id: GuildId::from_u64(guild_id),
+            server_update: Some(server_update),
             config: None,
         };
 
@@ -136,6 +142,10 @@ pub async fn update_player(
                     volume: volume as f32,
                 })
                 .await?;
+        }
+
+        if let Some(filters) = update_player.filters {
+            player.ask(SetFilters { filters }).await?;
         }
     }
 
@@ -193,7 +203,8 @@ pub async fn update_session(
 }
 
 pub async fn decode(query: Query<DecodeQueryString>) -> Result<Response<Body>, EndpointError> {
-    let track = decode_base64(&query.track)?;
+    let track = decode_track(&query.track)
+        .or_else(|_| decode_base64(&query.track))?;
 
     let track = ApiTrack {
         encoded: query.track.clone(),
@@ -214,11 +225,20 @@ pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, E
         let Some(data) = source.to_inner_ref().parse_query(&query.identifier) else {
             continue;
         };
+        
+        tracing::info!("Trying source: {}", source.to_inner_ref().get_name());
+        
         track = source
             .to_inner_ref()
             .resolve(data)
             .await?
             .unwrap_or(ApiTrackResult::Empty(None));
+        
+        // Break if we found a track, don't let other sources overwrite it
+        if !matches!(track, ApiTrackResult::Empty(_)) {
+            tracing::info!("Track found by source: {}", source.to_inner_ref().get_name());
+            break;
+        }
     }
 
     let string = serde_json::to_string_pretty(&track)?;
@@ -244,12 +264,19 @@ pub async fn node_info() -> Result<Response<Body>, EndpointError> {
             "commit": "unknown",
             "commitTime": 0
         },
-        "jvm": "N/A (Rust)",
-        "lavaplayer": "N/A (symphonia)",
         "sourceManagers": sources,
-        "filters": [],
-        "plugins": [],
-        "isNodelink": false
+        "filters": [
+            "volume",
+            "equalizer",
+            "timescale",
+            "tremolo",
+            "vibrato",
+            "rotation",
+            "distortion",
+            "channelMix",
+            "lowPass",
+            "karaoke"
+        ],
     });
 
     let string = serde_json::to_string_pretty(&info)?;
