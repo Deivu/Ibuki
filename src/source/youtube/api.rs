@@ -26,10 +26,13 @@ impl InnertubeApi {
         payload: Value,
         extra_headers: &[(String, String)],
     ) -> Result<Value, ResolverError> {
+        let api_key = std::env::var("INNERTUBE_API_KEY")
+            .map_err(|_| ResolverError::Custom("Missing INNERTUBE_API_KEY environment variable".to_string()))?;
+
         let mut url = Url::parse(&format!("{}{}", YOUTUBE_API_URL, endpoint))
             .map_err(|_| ResolverError::Custom("Invalid API URL".to_string()))?;
 
-        url.query_pairs_mut().append_pair("key", "INNERTUBE_API_KEY_PLACEHOLDER");
+        url.query_pairs_mut().append_pair("key", &api_key);
         
         let mut req_builder = self.http.post(url);
 

@@ -269,6 +269,17 @@ impl Seek for FilteredSource {
                     }
                     Err(e) => {
                         tracing::debug!("Inner format seek failed ({}). Resolving via manual packet discard to frame {}", e, frame_offset);
+
+                        if self.format.seek(
+                            symphonia::core::formats::SeekMode::Accurate,
+                            symphonia::core::formats::SeekTo::TimeStamp {
+                                ts: 0,
+                                track_id: self.track_id,
+                            },
+                        ).is_ok() {
+                            self.current_pcm_frame = 0;
+                        }
+                        
                         self.decoder.reset();
                         self.pcm_buffer.clear();
                         self.pcm_pos = 0;

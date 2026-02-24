@@ -70,7 +70,7 @@ impl Source for JioSaavn {
                 match url_type {
                     "song" => self.resolve_track(&url).await,
                     "album" => self.resolve_album(&url).await,
-                    "playlist" | "featured" => self.resolve_playlist(&url).await,
+                    "playlist" | "featured" | "s/playlist" => self.resolve_playlist(&url).await,
                     "artist" => self.resolve_artist(&url).await,
                     _ => Ok(None),
                 }

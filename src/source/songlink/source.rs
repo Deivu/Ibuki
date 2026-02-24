@@ -81,6 +81,10 @@ impl Source for Songlink {
                              // We don't have direct check logic here, but we can iterate active sources
                              
                              for entry in crate::SOURCES.iter() {
+                                 if entry.key() == "songlink" {
+                                     continue;
+                                 }
+                                 
                                  let source = entry.value();
                                  if let Some(q) = source.to_inner_ref().parse_query(target_url) {
                                      // Found a source that handles this!

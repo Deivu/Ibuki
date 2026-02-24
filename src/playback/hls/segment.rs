@@ -84,11 +84,13 @@ impl SegmentFetcher {
         
         // Decrypt map segment if encrypted
         if let Some(key) = key {
-            if key.method != "NONE" && let Some(iv) = &key.iv {
-                if body.len() % 16 == 0 {
-                    tracing::debug!("Decrypting map segment");
-                    let key_data = self.fetch_key(key).await?;
-                    return self.decrypt(body, &key_data, iv, &key.method);
+            if key.method != "NONE" {
+                if let Some(iv) = &key.iv {
+                    if body.len() % 16 == 0 {
+                        tracing::debug!("Decrypting map segment");
+                        let key_data = self.fetch_key(key).await?;
+                        return self.decrypt(body, &key_data, iv, &key.method);
+                    }
                 }
             }
         }
@@ -150,14 +152,14 @@ impl SegmentFetcher {
                   return Err(ResolverError::Custom("Data length not multiple of 16 for AES decryption".to_string()));
              }
              
-             cipher.decrypt_padded_mut::<block_padding::NoPadding>(&mut buffer)
+             let decrypted = cipher.decrypt_padded_mut::<block_padding::Pkcs7>(&mut buffer)
                  .map_err(|e| {
                      tracing::error!("Decryption failed: {:?}", e);
                      ResolverError::Custom(format!("Decryption failed: {:?}", e))
                  })?;
                  
-             tracing::debug!("Successfully decrypted {} bytes", buffer.len());
-             return Ok(Bytes::from(buffer));
+             tracing::debug!("Successfully decrypted {} bytes", decrypted.len());
+             return Ok(Bytes::copy_from_slice(decrypted));
          }
          
          tracing::error!("Unsupported encryption method: {}", method);

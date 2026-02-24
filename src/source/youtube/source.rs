@@ -254,13 +254,20 @@ impl Source for Youtube {
                 Ok(None)
             },
             Query::Url(url) => {
-                let video_id = if let Some(stripped) = url.strip_prefix("https://www.youtube.com/watch?v=") {
-                    &stripped[..11]
-                } else if let Some(stripped) = url.strip_prefix("https://youtu.be/") {
-                    &stripped[..11]
+                let stripped = if let Some(s) = url.strip_prefix("https://www.youtube.com/watch?v=") {
+                    s
+                } else if let Some(s) = url.strip_prefix("https://youtu.be/") {
+                    s
                 } else {
                     return Ok(None);
                 };
+
+                let video_id = stripped.split(&['&', '?'][..]).next().unwrap_or("");
+                
+                if video_id.len() != 11 || !video_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+                    tracing::warn!("YouTube: Invalid video ID extracted: {}", video_id);
+                    return Ok(None);
+                }
 
                 let info = self.manager.resolve_video(video_id).await?;
                 
