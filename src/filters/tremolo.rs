@@ -1,4 +1,5 @@
 use super::{AudioFilter, FilterError};
+use std::f64::consts::PI;
 
 pub struct TremoloFilter {
     frequency: f64,
@@ -31,8 +32,6 @@ impl TremoloFilter {
 
 impl AudioFilter for TremoloFilter {
     fn process(&mut self, samples: &mut [i16], sample_rate: u32) -> Result<(), FilterError> {
-        use std::f64::consts::PI;
-
         let phase_increment = 2.0 * PI * self.frequency / sample_rate as f64;
 
         for chunk in samples.chunks_exact_mut(2) {

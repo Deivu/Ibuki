@@ -1,4 +1,5 @@
 use super::{AudioFilter, FilterError};
+use std::f64::consts::PI;
 
 pub struct VibratoFilter {
     frequency: f64,
@@ -39,8 +40,6 @@ impl VibratoFilter {
 
 impl AudioFilter for VibratoFilter {
     fn process(&mut self, samples: &mut [i16], sample_rate: u32) -> Result<(), FilterError> {
-        use std::f64::consts::PI;
-
         let phase_inc = 2.0 * PI * self.frequency / sample_rate as f64;
         let max_delay = (Self::MAX_DELAY as f64 * self.depth * 0.5).max(1.0);
 

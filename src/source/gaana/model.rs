@@ -1,11 +1,11 @@
 #![allow(dead_code, unused)]
+use serde::de::Error;
 use serde::{Deserialize, Serialize};
 
 fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::de::Error;
     let value: serde_json::Value = serde::Deserialize::deserialize(deserializer)?;
     
     match value {

@@ -29,6 +29,7 @@ pub struct SoundCloud {
     search_prefix: &'static str,
     url_regex: Regex,
     search_url_regex: Regex,
+    short_url_regex: Regex,
 }
 
 impl SoundCloud {
@@ -45,6 +46,11 @@ impl SoundCloud {
         )
         .unwrap();
 
+        let short_url_regex = Regex::new(
+            r"^https?://on\.soundcloud\.com/[a-zA-Z0-9]+"
+        )
+        .unwrap();
+        
         Self {
             client: http.unwrap_or_else(|| Client::new()),
             client_id_cache: Arc::new(Mutex::new(None)),
@@ -52,6 +58,7 @@ impl SoundCloud {
             search_prefix: "scsearch",
             url_regex,
             search_url_regex,
+            short_url_regex,
         }
     }
 
@@ -78,46 +85,62 @@ impl SoundCloud {
         Ok(client_id)
     }
 
+    fn find_client_id(&self, text: &str) -> Option<String> {
+        let primary_regex = Regex::new(r#""client_id":\s?"([A-Za-z0-9]{32})""#).unwrap();
+        if let Some(caps) = primary_regex.captures(text) {
+            if let Some(id) = caps.get(1) {
+                return Some(id.as_str().to_string());
+            }
+        }
+
+        let fallback_regex = Regex::new(r#""[a-z0-9_]{0,16}id":\s?"([A-Za-z0-9]{32})""#).unwrap();
+        if let Some(caps) = fallback_regex.captures(text) {
+            if let Some(id) = caps.get(1) {
+                return Some(id.as_str().to_string());
+            }
+        }
+
+        None
+    }
+
     async fn fetch_client_id(&self) -> Result<String, ResolverError> {
-        let response = self.client.get(SOUNDCLOUD_URL).send().await?;
+        let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+        let response = self.client.get(SOUNDCLOUD_URL)
+            .header(reqwest::header::USER_AGENT, user_agent)
+            .send().await?;
         
         if !response.status().is_success() {
             return Err(ResolverError::FailedStatusCode(response.status().to_string()));
         }
 
         let html = response.text().await?;
-
-        let client_id_regex = Regex::new(
-            r#"(?:[?&/]?(?:client_id)[\s:=&]*"?|"data":\{"id":")([A-Za-z0-9]{32})"?"#
-        )
-        .unwrap();
-
-        if let Some(caps) = client_id_regex.captures(&html) {
-            if let Some(id) = caps.get(1) {
-                return Ok(id.as_str().to_string());
-            }
+        if let Some(id) = self.find_client_id(&html) {
+            tracing::debug!("Found soundcloud client_id in main page: {}", id);
+            return Ok(id);
         }
 
-        let asset_regex = Regex::new(r"https://a-v2\.sndcdn\.com/assets/[a-zA-Z0-9-]+\.js").unwrap();
+        let asset_regex = Regex::new(r#"https?://[a-z0-9-]+\.sndcdn\.com/assets/[^"]+\.js"#).unwrap();
         let asset_urls: Vec<String> = asset_regex
             .find_iter(&html)
             .map(|m| m.as_str().to_string())
             .collect();
 
         if asset_urls.is_empty() {
+            tracing::warn!("No soundcloud asset URLs found in main page");
             return Err(ResolverError::MissingRequiredData(
                 "No asset URLs found in SoundCloud main page",
             ));
         }
 
-        for asset_url in asset_urls {
-            match self.client.get(&asset_url).send().await {
+        for asset_url in asset_urls.iter().rev() {
+            match self.client.get(asset_url)
+                .header(reqwest::header::USER_AGENT, user_agent)
+                .send().await {
                 Ok(response) if response.status().is_success() => {
                     if let Ok(js_content) = response.text().await {
-                        if let Some(caps) = client_id_regex.captures(&js_content) {
-                            if let Some(id) = caps.get(1) {
-                                return Ok(id.as_str().to_string());
-                            }
+                        if let Some(id) = self.find_client_id(&js_content) {
+                            tracing::debug!("Found soundcloud client_id in asset: {}", id);
+                            return Ok(id);
                         }
                     }
                 }
@@ -133,8 +156,6 @@ impl SoundCloud {
     fn parse_search_type(&self, query: &str) -> (String, String) {
         let mut search_query = query.trim().to_string();
         let mut search_type = "tracks".to_string();
-
-        // Remove scsearch prefix
         if let Some(stripped) = search_query.strip_prefix("scsearch:") {
             search_query = stripped.to_string();
         } else if let Some(stripped) = search_query.strip_prefix("scsearch") {
@@ -142,8 +163,6 @@ impl SoundCloud {
         }
 
         search_query = search_query.trim().to_string();
-
-        // Check for type prefix (e.g., "users:Madonna")
         if let Some(colon_pos) = search_query.find(':') {
             if colon_pos > 0 && colon_pos <= 12 {
                 let possible_type = search_query[..colon_pos].to_lowercase();
@@ -183,9 +202,11 @@ impl SoundCloud {
         };
 
         let url = format!("{}{}", BASE_URL, endpoint);
+        let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
         let response = self
             .client
             .get(&url)
+            .header(reqwest::header::USER_AGENT, user_agent)
             .query(&[
                 ("q", search_query.as_str()),
                 ("client_id", &client_id),
@@ -396,8 +417,6 @@ impl SoundCloud {
         let playlist: Playlist = response.json().await?;
         let mut complete_tracks: Vec<Track> = Vec::new();
         let mut track_ids = Vec::new();
-
-        // Separate complete tracks from stubs
         if let Some(tracks) = &playlist.tracks {
             for track_or_stub in tracks {
                 match track_or_stub {
@@ -406,8 +425,6 @@ impl SoundCloud {
                 }
             }
         }
-
-        // Fetch missing tracks in batches
         if !track_ids.is_empty() {
             for chunk in track_ids.chunks(BATCH_SIZE) {
                 let ids = chunk
@@ -462,9 +479,6 @@ impl SoundCloud {
             return Err(ResolverError::MissingRequiredData("No transcodings available"));
         }
 
-        // Priority order: progressive MP3 > progressive AAC > any progressive > HLS (as fallback)
-        // Note: Progressive streams work better than HLS for symphonia probing
-        // We accept preview URLs if that's all SoundCloud provides
         let progressive_mp3 = transcodings.iter().find(|t| {
             t.format.protocol == "progressive" 
                 && t.format.mime_type.contains("mpeg")
@@ -495,8 +509,6 @@ impl SoundCloud {
         let any_hls = transcodings.iter().find(|t| {
             t.format.protocol == "hls"
         });
-
-        // Prioritize progressive over HLS since progressive works better with symphonia probe
         let selected = progressive_mp3
             .or(progressive_aac)
             .or(any_progressive)
@@ -578,7 +590,7 @@ impl Source for SoundCloud {
         if url.starts_with(self.search_prefix) {
             return Some(Query::Search(url.to_string()));
         }
-        if self.url_regex.is_match(url) || self.search_url_regex.is_match(url) {
+        if self.url_regex.is_match(url) || self.search_url_regex.is_match(url) || self.short_url_regex.is_match(url) {
             return Some(Query::Url(url.to_string()));
         }
 
@@ -587,7 +599,24 @@ impl Source for SoundCloud {
 
     async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
         match query {
-            Query::Url(url) => {
+            Query::Url(mut url) => {
+                let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+                if self.short_url_regex.is_match(&url) {
+                    let response = self.client.get(&url)
+                        .header(reqwest::header::USER_AGENT, user_agent)
+                        .send().await?;
+                    
+                    if !response.status().is_success() {
+                        return Err(ResolverError::FailedStatusCode(response.status().to_string()));
+                    }
+
+                    let final_url = response.url().to_string();
+                    if final_url == url {
+                        return Err(ResolverError::MissingRequiredData("Short URL did not redirect"));
+                    }
+                    url = final_url;
+                }
+
                 if let Some(caps) = self.search_url_regex.captures(&url) {
                     let search_type = caps.get(1).map(|m| m.as_str()).unwrap_or("tracks");
                     if let Ok(parsed_url) = url::Url::parse(&url) {
@@ -603,15 +632,35 @@ impl Source for SoundCloud {
                     return Ok(Some(ApiTrackResult::Empty(None)));
                 }
 
-                let client_id = self.get_client_id().await?;
+                let mut client_id = self.get_client_id().await?;
                 let resolve_url = format!("{}/resolve", BASE_URL);
 
-                let response = self
+                let mut response = self
                     .client
                     .get(&resolve_url)
+                    .header(reqwest::header::USER_AGENT, user_agent)
                     .query(&[("url", &url), ("client_id", &client_id)])
                     .send()
                     .await?;
+                if response.status() == reqwest::StatusCode::UNAUTHORIZED || response.status() == reqwest::StatusCode::FORBIDDEN {
+                    if self.config_client_id.is_some() {
+                        return Err(ResolverError::FailedStatusCode(format!("Configured client_id failed: {}", response.status())));
+                    }
+
+                    tracing::warn!("SoundCloud resolve failed with {}, retrying with new client_id", response.status());
+                    {
+                        let mut cache = self.client_id_cache.lock().await;
+                        *cache = None;
+                    }
+                    client_id = self.get_client_id().await?;
+                    response = self
+                        .client
+                        .get(&resolve_url)
+                        .header(reqwest::header::USER_AGENT, user_agent)
+                        .query(&[("url", &url), ("client_id", &client_id)])
+                        .send()
+                        .await?;
+                }
 
                 if response.status().as_u16() == 404 {
                     return Ok(Some(ApiTrackResult::Empty(None)));
@@ -645,10 +694,12 @@ impl Source for SoundCloud {
     async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError> {
         let client_id = self.get_client_id().await?;
         let tracks_url = format!("{}/tracks/{}", BASE_URL, track.info.identifier);
+        let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
         let response = self
             .client
             .get(&tracks_url)
+            .header(reqwest::header::USER_AGENT, user_agent)
             .query(&[("client_id", &client_id)])
             .send()
             .await?;
@@ -661,9 +712,6 @@ impl Source for SoundCloud {
 
         let track_data: Track = response.json().await?;
         let (url, protocol, _format) = self.select_transcoding(&track_data).await?;
-
-        // For progressive streams, use simple HTTP request
-        // For HLS streams, use HLS handler (though progressive is preferred due to probe compatibility)
         if protocol == "hls" {
             Ok(start_hls_stream(url, self.client.clone()).await)
         } else {

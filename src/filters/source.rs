@@ -218,22 +218,33 @@ impl Seek for FilteredSource {
         match pos {
             SeekFrom::Start(byte_pos) => {
                 if byte_pos < WAV_HEADER_SIZE as u64 {
-                    self.header_sent = false;
-                    self.header_pos = byte_pos as usize;
-                    self.pcm_buffer.clear();
-                    self.pcm_pos = 0;
-                    let _ = self.format.seek(
+                    if !self.seekable {
+                        return Err(io::Error::new(
+                            io::ErrorKind::Unsupported,
+                            "Source is not seekable backwards to WAV header",
+                        ));
+                    }
+
+                    if let Err(e) = self.format.seek(
                         symphonia::core::formats::SeekMode::Accurate,
                         symphonia::core::formats::SeekTo::TimeStamp {
                             ts: 0,
                             track_id: self.track_id,
                         },
-                    );
+                    ) {
+                        return Err(io::Error::new(io::ErrorKind::InvalidInput, e.to_string()));
+                    }
+
+                    self.header_sent = false;
+                    self.header_pos = byte_pos as usize;
+                    self.pcm_buffer.clear();
+                    self.pcm_pos = 0;
                     self.decoder.reset();
                     if let Ok(mut chain) = self.filter_chain.lock() {
                         chain.reset_state();
                     }
                     self.current_pcm_frame = 0;
+
                     return Ok(byte_pos);
                 }
 

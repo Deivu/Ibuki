@@ -5,7 +5,7 @@ use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty, La
 use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::PlayerError;
 use crate::filters::processor::FilterChain;
-use crate::filters::source::FilteredCompose;
+use crate::filters::source::{FilteredCompose, FilteredSource};
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
@@ -21,7 +21,7 @@ use songbird::Event;
 use songbird::TrackEvent;
 use songbird::driver::Bitrate;
 use songbird::id::{GuildId, UserId};
-use songbird::input::Compose;
+use songbird::input::{AudioStream, Compose, File, Input, LiveInput};
 use songbird::tracks::{Track, TrackHandle};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -464,10 +464,8 @@ impl Player {
     fn apply_filters(
         filter_chain: &Arc<Mutex<FilterChain>>,
         guild_id: GuildId,
-        input: songbird::input::Input,
-    ) -> songbird::input::Input {
-        use songbird::input::{Input, LiveInput, AudioStream};
-
+        input: Input,
+    ) -> Input {
         match input {
             Input::Lazy(compose) => {
                 tracing::debug!(
@@ -486,7 +484,7 @@ impl Player {
                 );
                 
                 let hint = stream.hint.unwrap_or_default();
-                match crate::filters::source::FilteredSource::new(
+                match FilteredSource::new(
                     stream.input,
                     hint,
                     filter_chain.clone(),
@@ -510,7 +508,7 @@ impl Player {
                             "FilteredSource creation failed for GuildId [{guild_id}]: {e}. \
                              Track will not play."
                         );
-                        Input::Lazy(Box::new(songbird::input::File::new(
+                        Input::Lazy(Box::new(File::new(
                             "__filter_error_unsupported_codec__",
                         )))
                     }
