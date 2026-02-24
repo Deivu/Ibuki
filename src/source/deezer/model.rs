@@ -462,4 +462,82 @@ impl DeezerQualityFormat {
             cipher: String::from("BF_CBC_STRIPE"),
         }
     }
+    
+    pub fn all_formats() -> Vec<Self> {
+        vec![
+            Self { format: "FLAC".to_string(), cipher: "BF_CBC_STRIPE".to_string() },
+            Self { format: "MP3_256".to_string(), cipher: "BF_CBC_STRIPE".to_string() },
+            Self { format: "MP3_128".to_string(), cipher: "BF_CBC_STRIPE".to_string() },
+            Self { format: "MP3_MISC".to_string(), cipher: "BF_CBC_STRIPE".to_string() },
+        ]
+    }
 }
+
+// Additional types needed for comprehensive Deezer support
+#[derive(Serialize, Debug)]
+pub struct DeezerGetListDataBody {
+    pub sng_ids: Vec<String>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DeezerRecommendationBody {
+    #[serde(rename = "sng_id", skip_serializing_if = "Option::is_none")]
+    pub sng_id: Option<String>,
+    #[serde(rename = "art_id", skip_serializing_if = "Option::is_none")]
+    pub art_id: Option<String>,
+    #[serde(rename = "start_with_input_track", skip_serializing_if = "Option::is_none")]
+    pub start_with_input_track: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DeezerApiError {
+    pub code: u16,
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub message: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DeezerApiErrorWrapper {
+    pub error: Option<DeezerApiError>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DeezerApiAlbumDetail {
+    pub id: u32,
+    pub title: String,
+    pub cover_xl: String,
+    pub tracklist: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DeezerApiPlaylist {
+    pub id: u32,
+    pub title: String,
+    pub picture_xl: Option<String>,
+    pub tracklist: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DeezerApiArtistDetail {
+    pub id: u32,
+    pub name: String,
+    pub picture_xl: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DeezerApiTrackList {
+    pub data: Vec<DeezerApiTrack>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct InternalDeezerListData {
+    pub data: Vec<InternalDeezerSongData>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct InternalDeezerRecommendationData {
+    pub data: Vec<InternalDeezerSongData>,
+}
+
+

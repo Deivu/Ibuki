@@ -1,5 +1,5 @@
 use crate::models::{ApiTrack, ApiTrackInfo, ApiTrackResult, Empty};
-use crate::util::encoder::encode_base64;
+use crate::util::encoder::encode_track;
 use crate::util::errors::ResolverError;
 use crate::util::seek::SeekableSource;
 use crate::util::source::Query;
@@ -28,6 +28,10 @@ impl Source for Http {
 
     fn parse_query(&self, query: &str) -> Option<Query> {
         if !is_url(query) {
+            return None;
+        }
+
+        if query.contains("spotify.com") || query.contains("spotify.app.link") || query.contains("soundcloud.com") {
             return None;
         }
 
@@ -69,7 +73,7 @@ impl Source for Http {
         let info = self.make_track(metadata);
 
         let track = ApiTrack {
-            encoded: encode_base64(&info)?,
+            encoded: encode_track(&info)?,
             info,
             plugin_info: Empty,
         };
@@ -77,26 +81,17 @@ impl Source for Http {
         Ok(Some(ApiTrackResult::Track(track)))
     }
 
-    async fn make_playable(&self, track: ApiTrack) -> Result<Track, ResolverError> {
-        let mut request = HttpRequest::new(
-            self.get_client(),
-            track
-                .info
-                .uri
-                .clone()
-                .ok_or(ResolverError::MissingRequiredData("uri"))?,
-        );
-
+    async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError> {
+        let url = track.info.uri.clone().ok_or(ResolverError::MissingRequiredData("HTTP URI"))?;
+        let mut request = HttpRequest::new(self.get_client(), url);
         let stream = request.create_async().await?;
 
         let seekable = SeekableSource::new_default(stream.input);
 
-        let input = Input::Live(
-            LiveInput::Raw(seekable.into_audio_stream(stream.hint)),
+        Ok(Input::Live(
+            songbird::input::LiveInput::Raw(seekable.into_audio_stream(stream.hint)),
             None,
-        );
-
-        Ok(Track::new_with_data(input, Arc::new(track)))
+        ))
     }
 }
 

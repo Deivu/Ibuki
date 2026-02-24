@@ -2,8 +2,10 @@ use super::events::PlayerEvent;
 use crate::CONFIG;
 use crate::SCHEDULER;
 use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty, LavalinkFilters};
-use crate::util::decoder::decode_base64;
+use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::PlayerError;
+use crate::filters::processor::FilterChain;
+use crate::filters::source::FilteredCompose;
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
@@ -19,8 +21,9 @@ use songbird::Event;
 use songbird::TrackEvent;
 use songbird::driver::Bitrate;
 use songbird::id::{GuildId, UserId};
-use songbird::tracks::TrackHandle;
-use std::sync::Arc;
+use songbird::input::Compose;
+use songbird::tracks::{Track, TrackHandle};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -50,7 +53,7 @@ pub struct PlayerOptions {
     pub config: Option<SongbirdConfig>,
     pub user_id: UserId,
     pub guild_id: GuildId,
-    pub server_update: ApiVoiceData,
+    pub server_update: Option<ApiVoiceData>,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
 }
 
@@ -62,6 +65,7 @@ pub struct Player {
     pub state: ApiPlayerState,
     pub voice: ApiVoiceData,
     pub filters: LavalinkFilters,
+    pub filter_chain: Arc<Mutex<FilterChain>>,
     internal: PlayerInternal,
 }
 
@@ -71,7 +75,8 @@ impl Actor for Player {
 
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let player = Player::new(args, actor_ref.downgrade()).await?;
-        player.internal.players.insert(player.guild_id, actor_ref);
+        // Player is now registered in the DashMap by PlayerManager before spawning
+        // to avoid race condition where get_player fails immediately after creation
         tracing::debug!("New Player Task spawned for GuildId: [{}]", player.guild_id);
         Ok(player)
     }
@@ -120,11 +125,12 @@ impl Player {
         let mut player = Player {
             guild_id: options.guild_id,
             track: None,
-            volume: 1,
+            volume: 80,
             paused: false,
             state: Default::default(),
-            voice: options.server_update.clone(),
+            voice: options.server_update.clone().unwrap_or_default(),
             filters: Default::default(),
+            filter_chain: Arc::new(Mutex::new(FilterChain::new(48000))),
             internal: PlayerInternal {
                 actor_ref,
                 user_id: options.user_id,
@@ -136,9 +142,9 @@ impl Player {
             },
         };
 
-        player
-            .connect(options.server_update, options.config)
-            .await?;
+        if let Some(server_update) = options.server_update {
+            player.connect(server_update, options.config).await?;
+        }
 
         Ok(player)
     }
@@ -179,7 +185,9 @@ impl Player {
         };
 
         let Some(driver) = self.internal.driver.as_mut() else {
-            let config = config.unwrap_or_default().scheduler(SCHEDULER.to_owned());
+            let config = config.unwrap_or_default()
+                .scheduler(SCHEDULER.to_owned())
+                .use_softclip(false);
 
             let mut driver = Driver::new(config.clone());
 
@@ -218,6 +226,61 @@ impl Player {
         self.state.connected = true;
         self.voice = server_update.clone();
 
+        if let Some(api_track) = self.track.clone() {
+            tracing::debug!("Playing queued track after connection for GuildId: [{}]", self.guild_id);
+            
+            let track_data = Arc::new(api_track.clone());
+            let input = api_track.make_playable().await?;
+            let input = Self::apply_filters(&self.filter_chain, self.guild_id, input);
+
+            let volume_f32 = self.volume as f32 / 100.0;
+            let track = Track::new_with_data(input, track_data).volume(volume_f32);
+
+            let track_handle = driver.play_only(track);
+
+            track_handle.add_event(
+                Event::Track(TrackEvent::Play),
+                PlayerEvent::new(
+                    Event::Track(TrackEvent::Play),
+                    self.guild_id,
+                    self.internal.user_id,
+                    self.internal.actor_ref.clone(),
+                ),
+            )?;
+
+            track_handle.add_event(
+                Event::Track(TrackEvent::Pause),
+                PlayerEvent::new(
+                    Event::Track(TrackEvent::Pause),
+                    self.guild_id,
+                    self.internal.user_id,
+                    self.internal.actor_ref.clone(),
+                ),
+            )?;
+
+            track_handle.add_event(
+                Event::Track(TrackEvent::Playable),
+                PlayerEvent::new(
+                    Event::Track(TrackEvent::Playable),
+                    self.guild_id,
+                    self.internal.user_id,
+                    self.internal.actor_ref.clone(),
+                ),
+            )?;
+
+            track_handle.add_event(
+                Event::Track(TrackEvent::End),
+                PlayerEvent::new(
+                    Event::Track(TrackEvent::End),
+                    self.guild_id,
+                    self.internal.user_id,
+                    self.internal.actor_ref.clone(),
+                ),
+            )?;
+
+            let _ = self.internal.handle.insert(track_handle);
+        }
+
         Ok(())
     }
 
@@ -238,27 +301,31 @@ impl Player {
 
     #[message]
     pub async fn play(&mut self, encoded: String) -> Result<(), PlayerError> {
-        let info = decode_base64(&encoded)?;
+        let info = decode_track(&encoded)
+            .or_else(|_| decode_base64(&encoded))?;
 
         let api_track = ApiTrack {
             encoded,
             info,
             plugin_info: Empty,
         };
+        self.track = Some(api_track.clone());
 
-        let mut track = api_track.make_playable().await?;
+        // If no driver yet (disconnected player), just queue the track
+        let Some(driver) = self.internal.driver.as_mut() else {
+            tracing::debug!("No driver yet, track queued for GuildId: [{}]", self.guild_id);
+            return Ok(());
+        };
 
-        if self.volume as f32 != track.volume {
-            track = track.volume(self.volume as f32);
-        }
+        // We have a driver, play the track
+        let track_data = Arc::new(api_track.clone());
+        let input = api_track.make_playable().await?;
+        let input = Self::apply_filters(&self.filter_chain, self.guild_id, input);
+
+        let volume_f32 = self.volume as f32 / 100.0;
+        let track = Track::new_with_data(input, track_data).volume(volume_f32);
 
         // todo: before sending the new track, we may want to send a replaced notification from here before playing the new track
-
-        let driver = self
-            .internal
-            .driver
-            .as_mut()
-            .ok_or(PlayerError::MissingDriver)?;
 
         let track_handle = driver.play_only(track);
 
@@ -366,12 +433,115 @@ impl Player {
     #[message]
     pub async fn set_volume(&mut self, volume: f32) {
         let Some(handle) = self.internal.handle.as_ref() else {
+            tracing::debug!(
+                "Cannot set volume for GuildId [{}]: no active track handle",
+                self.guild_id
+            );
             return;
         };
 
-        if handle.set_volume(volume).is_ok() {
-            self.volume = volume as u32;
+        let volume_f32 = volume / 100.0;
+        match handle.set_volume(volume_f32) {
+            Ok(_) => {
+                self.volume = volume as u32;
+                tracing::debug!(
+                    "Volume set to {} (raw {}) for GuildId: [{}]",
+                    volume_f32,
+                    volume,
+                    self.guild_id
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to set volume for GuildId [{}]: {:?}",
+                    self.guild_id,
+                    e
+                );
+            }
         }
+    }
+
+    fn apply_filters(
+        filter_chain: &Arc<Mutex<FilterChain>>,
+        guild_id: GuildId,
+        input: songbird::input::Input,
+    ) -> songbird::input::Input {
+        use songbird::input::{Input, LiveInput, AudioStream};
+
+        match input {
+            Input::Lazy(compose) => {
+                tracing::debug!(
+                    "Wrapping lazy input with FilteredCompose for GuildId [{guild_id}]"
+                );
+                Input::Lazy(Box::new(FilteredCompose::new(
+                    compose,
+                    filter_chain.clone(),
+                    48000,
+                    2,
+                )))
+            }
+            Input::Live(LiveInput::Raw(stream), data) => {
+                tracing::debug!(
+                    "Live raw input detected for GuildId [{guild_id}]. Attempting filter wrap..."
+                );
+                
+                let hint = stream.hint.unwrap_or_default();
+                match crate::filters::source::FilteredSource::new(
+                    stream.input,
+                    hint,
+                    filter_chain.clone(),
+                    48000,
+                    2,
+                ) {
+                    Ok(filtered) => {
+                        let out = AudioStream {
+                            input: Box::new(filtered)
+                                as Box<dyn symphonia::core::io::MediaSource>,
+                            hint: Some({
+                                let mut h = symphonia::core::probe::Hint::new();
+                                h.with_extension("wav");
+                                h
+                            }),
+                        };
+                        Input::Live(LiveInput::Raw(out), data)
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "FilteredSource creation failed for GuildId [{guild_id}]: {e}. \
+                             Track will not play."
+                        );
+                        Input::Lazy(Box::new(songbird::input::File::new(
+                            "__filter_error_unsupported_codec__",
+                        )))
+                    }
+                }
+            }
+            other => {
+                tracing::debug!(
+                    "Input type cannot be filtered for GuildId [{guild_id}], playing unfiltered"
+                );
+                other
+            }
+        }
+    }
+
+    #[message]
+    pub async fn set_filters(&mut self, filters: LavalinkFilters) -> Result<(), PlayerError> {
+        {
+            let mut chain = self.filter_chain.lock()
+                .map_err(|e| PlayerError::FailedMessage(format!("Filter lock error: {}", e)))?;
+            chain.update_from_config(&filters)
+                .map_err(|e| PlayerError::FailedMessage(format!("Filter error: {}", e)))?;
+        }
+        self.filters = filters;
+
+        tracing::debug!(
+            "Filters updated for GuildId: [{}], active: {}",
+            self.guild_id,
+            self.filter_chain.lock().map(|c| c.has_active_filters()).unwrap_or(false)
+        );
+
+        Ok(())
     }
 
     #[message]

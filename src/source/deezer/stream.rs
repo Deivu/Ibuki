@@ -75,3 +75,4 @@ impl ChunkTransform for DeezerDecryptTransform {
         2048
     }
 }
+
