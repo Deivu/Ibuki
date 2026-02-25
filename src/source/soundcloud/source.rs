@@ -321,7 +321,7 @@ impl SoundCloud {
         ApiTrack {
             encoded: encode_track(&info).unwrap_or_default(),
             info,
-            plugin_info: Empty,
+            plugin_info: Empty, user_data: None
         }
     }
 
@@ -343,7 +343,7 @@ impl SoundCloud {
         ApiTrack {
             encoded: encode_track(&info).unwrap_or_default(),
             info,
-            plugin_info: Empty,
+            plugin_info: Empty, user_data: None
         }
     }
 
@@ -372,7 +372,7 @@ impl SoundCloud {
                 String::new()
             }),
             info,
-            plugin_info: Empty,
+            plugin_info: Empty, user_data: None
         }
     }
 

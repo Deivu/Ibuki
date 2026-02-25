@@ -62,6 +62,9 @@ static REQWEST: LazyLock<Client> = LazyLock::new(|| {
     let builder = ClientBuilder::new().default_headers(generate_headers().unwrap());
     builder.build().expect("Failed to create reqwest client")
 });
+pub static SYSTEM: LazyLock<tokio::sync::Mutex<sysinfo::System>> = LazyLock::new(|| {
+    tokio::sync::Mutex::new(sysinfo::System::new())
+});
 
 #[main(flavor = "multi_thread")]
 async fn main() {
@@ -151,12 +154,21 @@ async fn main() {
             "/v{version}/sessions/{session_id}",
             routing::patch(routes::endpoints::update_session),
         )
+        .route(
+            "/v{version}/sessions/{session_id}/players",
+            routing::get(routes::endpoints::get_all_players),
+        )
+        .route(
+            "/v{version}/stats",
+            routing::get(routes::endpoints::get_stats),
+        )
         .route_layer(
             ServiceBuilder::new()
                 .layer(from_fn(middlewares::version::check))
                 .layer(from_fn(middlewares::auth::authenticate))
                 .layer(from_fn(middlewares::log::request)),
         )
+        .route("/version", routing::get(routes::endpoints::version))
         .route("/", routing::get(routes::global::landing))
         .fallback(|request: axum::extract::Request| async move {
             tracing::warn!(
@@ -189,8 +201,19 @@ async fn create_tasks() {
         key: "status_interval".to_lowercase(),
         duration: Duration::from_secs(CONFIG.status_update_secs.unwrap_or(30) as u64),
         handler: || async move {
-            let mut stat = perf_monitor::cpu::ProcessStat::cur().unwrap();
-            let cores = perf_monitor::cpu::processor_numbers().unwrap();
+            let global_cpu: f32 = {
+                let mut sys = SYSTEM.lock().await;
+                sys.refresh_cpu_usage();
+                let cpus = sys.cpus();
+                if cpus.is_empty() {
+                    0.0
+                } else {
+                    cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32
+                }
+            };
+
+            let Ok(mut stat) = perf_monitor::cpu::ProcessStat::cur() else { return };
+            let cores = perf_monitor::cpu::processor_numbers().unwrap_or(1);
 
             let Ok(process_memory_info) = perf_monitor::mem::get_process_memory_info() else {
                 return;
@@ -199,6 +222,7 @@ async fn create_tasks() {
             let Ok(usage) = stat.cpu() else {
                 return;
             };
+            let process_cpu = usage / cores as f64;
 
             let used = ALLOCATOR.allocated() as u64;
             let free = ALLOCATOR.remaining() as u64;
@@ -228,11 +252,10 @@ async fn create_tasks() {
                     allocated: process_memory_info.resident_set_size,
                     reservable: process_memory_info.virtual_memory_size,
                 },
-                // todo: get actual system load later
                 cpu: ApiCpu {
                     cores: cores as u32,
-                    system_load: usage,
-                    lavalink_load: usage,
+                    system_load: global_cpu as f64,
+                    lavalink_load: process_cpu,
                 },
                 frame_stats: None,
             };
@@ -259,3 +282,4 @@ async fn create_tasks() {
     };
     TASKS.add(task);
 }
+

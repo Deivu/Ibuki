@@ -386,7 +386,7 @@ impl JioSaavn {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: crate::models::Empty,
+            plugin_info: crate::models::Empty, user_data: None
         })
     }
 }

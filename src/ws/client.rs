@@ -159,7 +159,6 @@ impl WebSocketClient {
 
         let receiver_actor = ReceiverActor::spawn(ReceiverActorArgs {
             stream,
-            client_ref: ctx.actor_ref().clone(),
             dropped: self.dropped.clone(),
             user_id: self.user_id.clone(),
             players: self.player_manager.players.clone(),
@@ -176,7 +175,6 @@ impl WebSocketClient {
             session_id: self.session_id.to_string(),
         };
 
-        // Normally, this should never happen, but we ignore it if it does happen and log it
         let Ok(serialized) = serde_json::to_string(&ApiNodeMessage::Ready(Box::new(event))) else {
             tracing::warn!("Failed to encode ready op, this should not happen usually");
             return resumed;
@@ -242,6 +240,15 @@ impl WebSocketClient {
     }
 
     #[message]
+    pub async fn get_all_players(&self) -> Vec<(GuildId, ActorRef<Player>)> {
+        self.player_manager
+            .players
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
+    #[message]
     pub async fn destroy_player(&self, guild_id: GuildId) {
         self.player_manager.destroy_player(&guild_id).await;
     }
@@ -261,7 +268,7 @@ impl WebSocketClient {
     }
 
     fn terminate(&mut self) {
-        self.dropped.store(false, Ordering::Release);
+        self.dropped.store(true, Ordering::Release);
         self.player_manager.destroy_all();
     }
 }

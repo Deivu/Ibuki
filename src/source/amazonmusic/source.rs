@@ -400,7 +400,7 @@ impl AmazonMusic {
                     return Ok(Some(ApiTrackResult::Track(ApiTrack {
                         encoded: encode_track(selected)?,
                         info: selected.clone(),
-                        plugin_info: Empty,
+                        plugin_info: Empty, user_data: None
                     })));
                 }
             }
@@ -408,7 +408,7 @@ impl AmazonMusic {
                 return Ok(Some(ApiTrackResult::Track(ApiTrack {
                     encoded: encode_track(&tracks[0])?,
                     info: tracks[0].clone(),
-                    plugin_info: Empty,
+                    plugin_info: Empty, user_data: None
                 })));
             }
             return Ok(Some(ApiTrackResult::Playlist(ApiTrackPlaylist {
@@ -422,7 +422,7 @@ impl AmazonMusic {
                     .map(|info| ApiTrack {
                         encoded: encode_track(&info).unwrap_or_default(),
                         info,
-                        plugin_info: Empty,
+                        plugin_info: Empty, user_data: None
                     })
                     .collect(),
             })));
@@ -461,7 +461,7 @@ impl AmazonMusic {
             return Ok(Some(ApiTrackResult::Track(ApiTrack {
                 encoded: encode_track(&track_info)?,
                 info: track_info,
-                plugin_info: Empty,
+                plugin_info: Empty, user_data: None
             })));
         }
 
@@ -750,7 +750,7 @@ impl AmazonMusic {
                 .map(|info| ApiTrack {
                     encoded: encode_track(&info).unwrap_or_default(),
                     info,
-                    plugin_info: Empty,
+                    plugin_info: Empty, user_data: None
                 })
                 .collect(),
         )))

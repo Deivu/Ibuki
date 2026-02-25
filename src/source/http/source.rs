@@ -75,7 +75,7 @@ impl Source for Http {
         let track = ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty,
+            plugin_info: Empty, user_data: None
         };
 
         Ok(Some(ApiTrackResult::Track(track)))

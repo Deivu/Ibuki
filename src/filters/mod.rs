@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 pub mod volume;
 pub mod equalizer;
 pub mod tremolo;
@@ -11,7 +13,6 @@ pub mod timescale;
 pub mod processor;
 pub mod source;
 
-use thiserror::Error;
 
 #[derive(Error, Clone, Debug)]
 pub enum FilterError {

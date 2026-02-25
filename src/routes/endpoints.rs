@@ -82,7 +82,6 @@ pub async fn update_player(
         })
         .await?;
 
-    // Create player if it doesn't exist (with or without voice connection)
     if option_player.is_none() {
         let options = CreatePlayerOptions {
             guild_id: GuildId::from_u64(guild_id),
@@ -92,7 +91,6 @@ pub async fn update_player(
 
         client.ask(CreatePlayer { options }).await?;
     } else if let Some(server_update) = update_player.voice {
-        // If player exists, update voice connection if provided
         let options = CreatePlayerOptions {
             guild_id: GuildId::from_u64(guild_id),
             server_update: Some(server_update),
@@ -113,11 +111,14 @@ pub async fn update_player(
 
     let is_active = player.ask(IsActive).await?;
 
-    if let Some(encoded) = update_player.track.map(|track| track.encoded) {
+    if let Some(encoded) = update_player.track.as_ref().map(|track| track.encoded.clone()) {
         if !is_active || !query.no_replace.unwrap_or(false) {
             match encoded {
                 Value::String(encoded) => {
-                    player.ask(Play { encoded }).await?;
+                    player.ask(Play { 
+                        encoded, 
+                        user_data: update_player.track.as_ref().and_then(|t| t.user_data.clone()),
+                    }).await?;
                 }
                 _ => {
                     player.ask(Stop).await?;
@@ -206,11 +207,7 @@ pub async fn decode(query: Query<DecodeQueryString>) -> Result<Response<Body>, E
     let track = decode_track(&query.track)
         .or_else(|_| decode_base64(&query.track))?;
 
-    let track = ApiTrack {
-        encoded: query.track.clone(),
-        info: track,
-        plugin_info: Empty,
-    };
+    let track = ApiTrack { encoded: query.track.clone(), info: track, plugin_info: Empty, user_data: None, };
 
     let string = serde_json::to_string_pretty(&track)?;
 
@@ -234,7 +231,6 @@ pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, E
             .await?
             .unwrap_or(ApiTrackResult::Empty(None));
         
-        // Break if we found a track, don't let other sources overwrite it
         if !matches!(track, ApiTrackResult::Empty(_)) {
             tracing::info!("Track found by source: {}", source.to_inner_ref().get_name());
             break;
@@ -281,6 +277,85 @@ pub async fn node_info() -> Result<Response<Body>, EndpointError> {
 
     let string = serde_json::to_string_pretty(&info)?;
 
+    Ok(Response::builder()
+        .header("Content-Type", "application/json")
+        .body(Body::from(string))
+        .unwrap())
+}
+
+pub async fn version() -> Response<Body> {
+    Response::builder()
+        .header("Content-Type", "text/plain")
+        .body(Body::from("4.0.0"))
+        .unwrap()
+}
+
+pub async fn get_stats() -> Result<Response<Body>, EndpointError> {
+    let mut sys = crate::SYSTEM.lock().await;
+    sys.refresh_cpu_usage();
+    let cpus = sys.cpus();
+    let global_cpu: f32 = if cpus.is_empty() {
+        0.0
+    } else {
+        cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32
+    };
+
+    let cores = perf_monitor::cpu::processor_numbers().unwrap_or(1);
+    let process_cpu = if let Ok(mut stat) = perf_monitor::cpu::ProcessStat::cur() {
+        stat.cpu().unwrap_or(0.0) / cores as f64
+    } else {
+        0.0
+    };
+
+    let used = crate::ALLOCATOR.allocated() as u64;
+    let free = crate::ALLOCATOR.remaining() as u64;
+
+    let process_memory_info = perf_monitor::mem::get_process_memory_info()
+        .map_err(|e| EndpointError::FailedMessage(format!("Failed to get memory info: {}", e)))?;
+
+    let stats = crate::models::ApiStats {
+        players: crate::SCHEDULER.total_tasks() as u32,
+        playing_players: crate::SCHEDULER.live_tasks() as u32,
+        uptime: crate::START.elapsed().as_millis() as u64,
+        memory: crate::models::ApiMemory {
+            free,
+            used,
+            allocated: process_memory_info.resident_set_size,
+            reservable: process_memory_info.virtual_memory_size,
+        },
+        cpu: crate::models::ApiCpu {
+            cores: cores as u32,
+            system_load: global_cpu as f64,
+            lavalink_load: process_cpu,
+        },
+        frame_stats: None,
+    };
+
+    let string = serde_json::to_string_pretty(&stats)?;
+    Ok(Response::builder()
+        .header("Content-Type", "application/json")
+        .body(Body::from(string))
+        .unwrap())
+}
+
+pub async fn get_all_players(
+    Path(SessionMethodsPath { session_id }): Path<SessionMethodsPath>,
+) -> Result<Response<Body>, EndpointError> {
+    let client = get_client(session_id)
+        .await
+        .ok_or(EndpointError::NoWebsocketClientFound)?;
+
+    let players = client.ask(crate::ws::client::GetAllPlayers).await?;
+
+    let mut player_list = Vec::new();
+    for (_guild_id, player_ref) in players {
+        match player_ref.ask(GetApiPlayerInfo).await {
+            Ok(data) => player_list.push(data),
+            Err(e) => tracing::error!("Failed to GetApiPlayerInfo for guild {}: {:?}", _guild_id, e),
+        }
+    }
+
+    let string = serde_json::to_string_pretty(&player_list)?;
     Ok(Response::builder()
         .header("Content-Type", "application/json")
         .body(Body::from(string))

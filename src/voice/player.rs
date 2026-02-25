@@ -25,6 +25,7 @@ use songbird::input::{AudioStream, Compose, File, Input, LiveInput};
 use songbird::tracks::{Track, TrackHandle};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use serde_json::Value;
 
 #[derive(Debug)]
 pub enum PlayerUpdate {
@@ -56,7 +57,6 @@ pub struct PlayerOptions {
     pub server_update: Option<ApiVoiceData>,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
 }
-
 pub struct Player {
     pub guild_id: GuildId,
     pub track: Option<ApiTrack>,
@@ -75,8 +75,6 @@ impl Actor for Player {
 
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let player = Player::new(args, actor_ref.downgrade()).await?;
-        // Player is now registered in the DashMap by PlayerManager before spawning
-        // to avoid race condition where get_player fails immediately after creation
         tracing::debug!("New Player Task spawned for GuildId: [{}]", player.guild_id);
         Ok(player)
     }
@@ -300,7 +298,11 @@ impl Player {
     }
 
     #[message]
-    pub async fn play(&mut self, encoded: String) -> Result<(), PlayerError> {
+    pub async fn play(
+        &mut self, 
+        encoded: String, 
+        user_data: Option<Value>
+    ) -> Result<(), PlayerError> {
         let info = decode_track(&encoded)
             .or_else(|_| decode_base64(&encoded))?;
 
@@ -308,6 +310,7 @@ impl Player {
             encoded,
             info,
             plugin_info: Empty,
+            user_data,
         };
         self.track = Some(api_track.clone());
 

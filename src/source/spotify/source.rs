@@ -124,7 +124,7 @@ impl Spotify {
         Some(ApiTrack {
             encoded: crate::util::encoder::encode_track(&info).ok()?,
             info,
-            plugin_info: crate::models::Empty,
+            plugin_info: crate::models::Empty, user_data: None
         })
     }
     
@@ -201,7 +201,7 @@ impl Spotify {
                      tracks.push(ApiTrack {
                         encoded,
                         info,
-                        plugin_info: crate::models::Empty,
+                        plugin_info: crate::models::Empty, user_data: None
                     });
                  }
             }

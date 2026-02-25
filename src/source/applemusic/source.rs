@@ -297,7 +297,7 @@ impl AppleMusic {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty,
+            plugin_info: Empty, user_data: None
         })
     }
 

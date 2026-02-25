@@ -188,7 +188,7 @@ impl Youtube {
         Some(ApiTrack {
             encoded: crate::util::encoder::encode_track(&info).ok()?,
             info,
-            plugin_info: crate::models::Empty,
+            plugin_info: crate::models::Empty, user_data: None
         })
     }
 }
@@ -276,7 +276,7 @@ impl Source for Youtube {
                              return Ok(Some(ApiTrackResult::Track(ApiTrack {
                                  encoded: crate::util::encoder::encode_track(&track_info)?,
                                  info: track_info,
-                                 plugin_info: crate::models::Empty,
+                                 plugin_info: crate::models::Empty, user_data: None
                              })));
                      }
                 }

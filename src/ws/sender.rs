@@ -28,7 +28,10 @@ impl KameoMessage<SendToWebsocket> for SenderActor {
             return;
         }
 
-        tracing::debug!("Sending message to WebSocket {:?}", msg.0);
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let log_msg = crate::ws::redact_ws_message_for_log(&msg.0);
+            tracing::debug!("Sending message to WebSocket {}", log_msg);
+        }
 
         if let Err(error) = self.sink.send(msg.0).await {
             tracing::error!("Error sending message to WebSocket {:?}", error);

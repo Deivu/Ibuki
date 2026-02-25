@@ -554,8 +554,6 @@ impl Deezer {
         }
 
         let text = response.text().await?;
-
-        // Check for API error
         if let Ok(err_wrapper) = serde_json::from_str::<DeezerApiErrorWrapper>(&text) {
             if let Some(err) = err_wrapper.error {
                 if err.code == 800 {
@@ -701,7 +699,7 @@ impl Deezer {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty,
+            plugin_info: Empty, user_data: None
         })
     }
 
@@ -728,7 +726,7 @@ impl Deezer {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty,
+            plugin_info: Empty, user_data: None
         })
     }
 
@@ -757,7 +755,7 @@ impl Deezer {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty,
+            plugin_info: Empty, user_data: None
         })
     }
 

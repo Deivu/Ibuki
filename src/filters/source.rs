@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+use songbird::input::{AudioStream, AudioStreamError, Compose};
 use crate::filters::processor::FilterChain;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
@@ -253,7 +255,6 @@ impl Seek for FilteredSource {
                 let frame_offset = pcm_bytes / bytes_per_frame;
 
                 if !self.seekable && frame_offset < self.current_pcm_frame {
-                    // Backwards seek on unseekable stream impossible without recreation.
                     return Err(io::Error::new(
                         io::ErrorKind::Unsupported,
                         "Source is not seekable backwards",
@@ -369,9 +370,6 @@ fn build_wav_header(sample_rate: u32, num_channels: u16) -> [u8; WAV_HEADER_SIZE
     h[40..44].copy_from_slice(&data_size.to_le_bytes());
     h
 }
-
-use async_trait::async_trait;
-use songbird::input::{AudioStream, AudioStreamError, Compose};
 
 pub struct FilteredCompose {
     inner: Box<dyn Compose>,
