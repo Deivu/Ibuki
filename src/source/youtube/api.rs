@@ -1,3 +1,4 @@
+use std::time::Duration;
 use reqwest::{Client, Url};
 use serde_json::{json, Value};
 use tracing::error;
@@ -14,7 +15,10 @@ pub struct InnertubeApi {
 impl InnertubeApi {
     pub fn new() -> Self {
         Self {
-            http: Client::new(),
+            http: Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .expect("Failed to build HTTP client"),
         }
     }
 
@@ -26,21 +30,14 @@ impl InnertubeApi {
         payload: Value,
         extra_headers: &[(String, String)],
     ) -> Result<Value, ResolverError> {
-        let api_key = std::env::var("INNERTUBE_API_KEY")
-            .map_err(|_| ResolverError::Custom("Missing INNERTUBE_API_KEY environment variable".to_string()))?;
 
         let mut url = Url::parse(&format!("{}{}", YOUTUBE_API_URL, endpoint))
             .map_err(|_| ResolverError::Custom("Invalid API URL".to_string()))?;
-
-        url.query_pairs_mut().append_pair("key", &api_key);
-        
         let mut req_builder = self.http.post(url);
 
         for (k, v) in extra_headers {
             req_builder = req_builder.header(k, v);
         }
-
-        // Add Context to Payload
         let mut final_payload = payload;
         if let Some(obj) = final_payload.as_object_mut() {
              obj.insert("context".to_string(), json!(context));
@@ -112,8 +109,8 @@ impl InnertubeApi {
         visitor_data: Option<&str>,
         po_token: Option<&str>,
         oauth_token: Option<&str>,
+        signature_timestamp: Option<u32>,
     ) -> Result<Value, ResolverError> {
-        // Prepare main payload
         let mut payload = json!({
             "videoId": video_id,
             "playbackContext": {
@@ -125,8 +122,7 @@ impl InnertubeApi {
                     "mdxContext": {},
                     "playerWidthPixels": 1280,
                     "playerHeightPixels": 720,
-                    "referer": "https://www.youtube.com/",
-                    "signatureTimestamp": 19766
+                    "referer": "https://www.youtube.com/"
                 }
             }
         });
@@ -137,6 +133,16 @@ impl InnertubeApi {
 
         if let Some(start) = start_time {
              payload.as_object_mut().unwrap().insert("startTimeSecs".to_string(), json!(start));
+        }
+
+        if let Some(timestamp) = signature_timestamp {
+             if let Some(playback_context) = payload.get_mut("playbackContext") {
+                 if let Some(content_context) = playback_context.get_mut("contentPlaybackContext") {
+                     if let Some(obj) = content_context.as_object_mut() {
+                         obj.insert("signatureTimestamp".to_string(), json!(timestamp));
+                     }
+                 }
+             }
         }
         
         let mut context = client.context();

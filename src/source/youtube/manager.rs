@@ -120,7 +120,7 @@ impl YouTubeManager {
             let Some(client) = self.get_innertube_client(client_name) else { continue; };
             debug!("Attempting to resolve {} with {}", video_id, client.name());
 
-            match self.api.player(video_id, client.as_ref(), None, None, visitor_data.as_deref(), po_token.as_deref(), oauth_token.as_deref()).await {
+            match self.api.player(video_id, client.as_ref(), None, None, visitor_data.as_deref(), po_token.as_deref(), oauth_token.as_deref(), None).await {
                 Ok(response) => {
                      if let Some(status) = response.get("playabilityStatus").and_then(|s| s.get("status")).and_then(|s| s.as_str()) {
                          if status == "OK" {
@@ -152,7 +152,7 @@ impl YouTubeManager {
          for client_name in &self.playback_clients {
               let Some(client) = self.get_innertube_client(client_name) else { continue; };
               
-              let player_response = match self.api.player(video_id, client.as_ref(), None, None, visitor_data.as_deref(), po_token.as_deref(), oauth_token.as_deref()).await {
+              let player_response = match self.api.player(video_id, client.as_ref(), None, None, visitor_data.as_deref(), po_token.as_deref(), oauth_token.as_deref(), None).await {
                   Ok(res) => res,
                   Err(e) => {
                       last_error = e;

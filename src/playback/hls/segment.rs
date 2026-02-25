@@ -1,4 +1,4 @@
-use aes::cipher::{BlockDecryptMut, KeyIvInit};
+use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use cbc::Decryptor;
 use aes::Aes128; 
 use reqwest::Client;
@@ -63,8 +63,7 @@ impl SegmentFetcher {
         Ok(bytes)
     }
 
-    /// Fetch a map/initialization segment (for fMP4 HLS streams).
-    pub async fn fetch_map(&self, map: &Map, key: Option<&Key>) -> Result<Bytes, ResolverError> {
+    pub async fn fetch_map(&self, map: &Map, key: Option<&Key>, sequence: Option<u64>) -> Result<Bytes, ResolverError> {
         tracing::debug!("Fetching map segment: {}", map.uri);
         
         let mut options = HttpOptions::default();
@@ -81,17 +80,25 @@ impl SegmentFetcher {
         }
         
         let body = res.body.ok_or(ResolverError::Custom("Empty map body".to_string()))?;
-        
-        // Decrypt map segment if encrypted
         if let Some(key) = key {
             if key.method != "NONE" {
-                if let Some(iv) = &key.iv {
-                    if body.len() % 16 == 0 {
-                        tracing::debug!("Decrypting map segment");
-                        let key_data = self.fetch_key(key).await?;
-                        return self.decrypt(body, &key_data, iv, &key.method);
+                let iv = match &key.iv {
+                    Some(iv) => iv.clone(),
+                    None => {
+                        if let Some(seq) = sequence {
+                            let mut iv_bytes = [0u8; 16];
+                            iv_bytes[8..16].copy_from_slice(&seq.to_be_bytes());
+                            iv_bytes.to_vec()
+                        } else {
+                            tracing::error!("Map segment encrypted but missing IV and no sequence provided");
+                            return Err(ResolverError::Custom("Missing IV for map segment".to_string()));
+                        }
                     }
-                }
+                };
+
+                tracing::debug!("Decrypting map segment");
+                let key_data = self.fetch_key(key).await?;
+                return self.decrypt(body, &key_data, &iv, &key.method);
             }
         }
         
@@ -115,7 +122,6 @@ impl SegmentFetcher {
              return Err(ResolverError::Custom(format!("Segment fetch failed: {}", res.status)));
         }
         
-        // Segments can be large, but we are decrypting so we need whole buffer likely
         let body = res.body.ok_or(ResolverError::Custom("Empty body".to_string()))?;
 
         if let Some(key) = &segment.key {
@@ -123,7 +129,6 @@ impl SegmentFetcher {
                  let key_data = self.fetch_key(key).await?;
                  let iv = key.iv.clone().unwrap_or_else(|| {
                      let mut iv = [0u8; 16];
-                     // IV from sequence number (RFC 8216 Section 5.2)
                      let seq_bytes = segment.sequence.to_be_bytes();
                      iv[8..16].copy_from_slice(&seq_bytes);
                      iv.to_vec()
@@ -152,7 +157,7 @@ impl SegmentFetcher {
                   return Err(ResolverError::Custom("Data length not multiple of 16 for AES decryption".to_string()));
              }
              
-             let decrypted = cipher.decrypt_padded_mut::<block_padding::Pkcs7>(&mut buffer)
+             let decrypted = cipher.decrypt_padded_mut::<Pkcs7>(&mut buffer)
                  .map_err(|e| {
                      tracing::error!("Decryption failed: {:?}", e);
                      ResolverError::Custom(format!("Decryption failed: {:?}", e))

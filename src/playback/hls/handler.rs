@@ -324,7 +324,7 @@ async fn run_hls_loop(
             if !init_segment_sent {
                 if let Some(ref map) = segment.map {
                     tracing::info!("Fetching fMP4 initialization segment: {}", map.uri);
-                    match fetcher.fetch_map(map, segment.key.as_ref()).await {
+                    match fetcher.fetch_map(map, segment.key.as_ref(), Some(segment.sequence as u64)).await {
                         Ok(init_data) => {
                             tracing::info!("fMP4 initialization segment fetched: {} bytes", init_data.len());
                             if tx.send_async(Ok(init_data)).await.is_err() {

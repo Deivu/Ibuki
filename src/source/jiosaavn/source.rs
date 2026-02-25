@@ -14,6 +14,9 @@ use base64::prelude::*;
 use regex::Regex;
 use reqwest::Client;
 use songbird::input::{HttpRequest, Input};
+use crate::CONFIG;
+use des::cipher::{BlockDecryptMut, KeyInit};
+use block_padding::Pkcs7;
 
 pub struct JioSaavn {
     client: Client,
@@ -70,7 +73,7 @@ impl Source for JioSaavn {
                 match url_type {
                     "song" => self.resolve_track(&url).await,
                     "album" => self.resolve_album(&url).await,
-                    "playlist" | "featured" | "s/playlist" => self.resolve_playlist(&url).await,
+                    "featured" | "s/playlist" => self.resolve_playlist(&url).await,
                     "artist" => self.resolve_artist(&url).await,
                     _ => Ok(None),
                 }
@@ -97,7 +100,6 @@ impl Source for JioSaavn {
 
 impl JioSaavn {
     pub fn new(client: Option<Client>) -> Self {
-        use crate::CONFIG;
         
         let config = CONFIG
             .jiosaavn_config
@@ -344,18 +346,20 @@ impl JioSaavn {
     }
 
     fn decrypt_url(&self, encrypted_url: &str) -> Result<String, ResolverError> {
-        use des::cipher::{BlockDecryptMut, KeyInit};
-        use block_padding::Pkcs7;
         type DesEcb = ecb::Decryptor<des::Des>;
 
         let encrypted_bytes = BASE64_STANDARD
             .decode(encrypted_url)
             .map_err(|e| ResolverError::DecryptionError(e.to_string()))?;
 
-        let key = self.secret_key.as_bytes();
-        let cipher = DesEcb::new(key.into());
+        let key_bytes = self.secret_key.as_bytes();
+        if key_bytes.len() != 8 {
+            return Err(ResolverError::DecryptionError(format!("Invalid JioSaavn key length: expected 8, got {}", key_bytes.len())));
+        }
 
-        let mut buffer = encrypted_bytes.clone();
+        let cipher = DesEcb::new_from_slice(key_bytes).map_err(|e| ResolverError::DecryptionError(format!("Failed to initialize DesEcb: {:?}", e)))?;
+
+        let mut buffer = encrypted_bytes;
         let decrypted = cipher
             .decrypt_padded_mut::<Pkcs7>(&mut buffer)
             .map_err(|e| ResolverError::DecryptionError(format!("Decryption failed: {:?}", e)))?;

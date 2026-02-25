@@ -12,6 +12,7 @@ use reqwest::Client;
 use songbird::input::{HttpRequest, Input};
 use songbird::tracks::Track;
 use std::sync::Arc;
+use crate::CONFIG;
 
 pub struct Gaana {
     client: Client,
@@ -114,8 +115,6 @@ impl Source for Gaana {
 
 impl Gaana {
     pub fn new(client: Option<Client>) -> Self {
-        use crate::CONFIG;
-
         let config = CONFIG
             .gaana_config
             .as_ref()

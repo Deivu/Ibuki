@@ -1,4 +1,5 @@
 use super::{AudioFilter, FilterError};
+use std::f64::consts::PI;
 
 pub struct RotationFilter {
     rotation_hz: f64,
@@ -16,8 +17,6 @@ impl RotationFilter {
 
 impl AudioFilter for RotationFilter {
     fn process(&mut self, samples: &mut [i16], sample_rate: u32) -> Result<(), FilterError> {
-        use std::f64::consts::PI;
-
         let phase_inc = 2.0 * PI * self.rotation_hz / sample_rate as f64;
 
         for chunk in samples.chunks_exact_mut(2) {

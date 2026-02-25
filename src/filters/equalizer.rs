@@ -1,5 +1,6 @@
 use super::{AudioFilter, FilterError};
 use crate::models::Equalizer;
+use std::f64::consts::PI;
 
 pub struct EqualizerFilter {
     bands: [BiquadFilter; 15],
@@ -117,8 +118,6 @@ struct BiquadFilter {
 
 impl BiquadFilter {
     fn peaking_eq(sample_rate: f64, frequency: f64, q: f64, gain_db: f64) -> Self {
-        use std::f64::consts::PI;
-
         let a = 10_f64.powf(gain_db / 40.0);
         let omega = 2.0 * PI * frequency / sample_rate;
         let sin_omega = omega.sin();
