@@ -18,9 +18,9 @@ pub enum Strategy {
 
 impl FromStr for Strategy {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
+        match s.to_lowercase().replace('-', "").replace('_', "").as_str() {
             "rotateonban" => Ok(Strategy::RotateOnBan),
             "loadbalance" => Ok(Strategy::LoadBalance),
             "nanoswitch" => Ok(Strategy::NanoSwitch),
@@ -116,26 +116,36 @@ impl IpBlock {
         match base_ip {
             IpAddr::V4(ipv4) => {
                 let base = u32::from(*ipv4);
-                let host_bits = 32 - mask;
-                let num_ips = 2_u32.pow(host_bits as u32);
+                let host_bits = 32u8.checked_sub(mask)
+                    .ok_or_else(|| format!("Invalid mask: {} (must be <= 32)", mask))?;
+                
+                let num_ips = 1u64 << host_bits;
                 if num_ips > 65536 {
-                    return Err(format!("IP block too large: {} IPs", num_ips));
+                    return Err(format!("IP block too large: {} IPs (max 65536)", num_ips));
                 }
 
-                let mut ips = Vec::with_capacity(num_ips as usize);
-                for i in 0..num_ips {
-                    let ip_u32 = base + i;
+                let num_ips_usize = num_ips as usize;
+                
+                if num_ips_usize > 0 {
+                    base.checked_add((num_ips_usize - 1) as u32)
+                        .ok_or_else(|| format!("IP range starting at {} with size {} overflows 32-bit address space", ipv4, num_ips_usize))?;
+                }
+
+                let mut ips = Vec::with_capacity(num_ips_usize);
+                for i in 0..num_ips_usize {
+                    let ip_u32 = base + i as u32;
                     ips.push(IpAddr::V4(std::net::Ipv4Addr::from(ip_u32)));
                 }
                 Ok(ips)
             }
             IpAddr::V6(_) => {
-                Ok(vec![*base_ip])
+                Err("IPv6 CIDR blocks are not yet supported; only IPv4 is enumerated".to_string())
             }
         }
     }
 
     fn get_ip(&self, index: usize) -> Option<&IpAddr> {
+        if self.ips.is_empty() { return None; }
         self.ips.get(index % self.ips.len())
     }
 
@@ -187,11 +197,11 @@ impl RoutePlanner {
         }
     }
 
-    fn total_slots(&self) -> u64 {
+    fn total_slots(&self) -> usize {
         self.ip_blocks.iter().map(|b| b.size()).sum()
     }
 
-    fn get_ip_from_global_index(&self, mut global_index: u64) -> Option<IpAddr> {
+    fn get_ip_from_global_index(&self, mut global_index: usize) -> Option<IpAddr> {
         for block in &self.ip_blocks {
             if global_index < block.size() {
                 return block.get_ip(global_index);
@@ -260,9 +270,13 @@ impl RoutePlanner {
     fn rotating_nano_switch(&self) -> Option<IpAddr> {
         let total = self.total_slots();
         if total == 0 { return None; }
-        let rotate_idx = self.rotate_index.load(Ordering::Relaxed);
-        let nano_idx = self.nano_index.fetch_add(1, Ordering::Relaxed);
         
+        let nano_idx = self.nano_index.fetch_add(1, Ordering::Relaxed);
+        if nano_idx > 0 && nano_idx % total == 0 {
+            self.rotate_index.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let rotate_idx = self.rotate_index.load(Ordering::Relaxed);
         let combined_index = (rotate_idx + nano_idx) % total;
 
         for offset in 0..total {
@@ -330,7 +344,11 @@ impl RoutePlanner {
             .iter()
             .map(|entry| FailingAddress {
                 failing_address: entry.key().clone(),
-                failing_timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64 - entry.value().banned_at.elapsed().as_millis() as u64,
+                failing_timestamp: std::time::SystemTime::now()
+                    .checked_sub(entry.value().banned_at.elapsed())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis().try_into().unwrap_or(u64::MAX))
+                    .unwrap_or(0),
             })
             .collect();
 
