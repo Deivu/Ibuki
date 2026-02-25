@@ -20,7 +20,7 @@ impl FromStr for Strategy {
     type Err = String;
     
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
+        match s.to_lowercase().replace('-', "").replace('_', "").as_str() {
             "rotateonban" => Ok(Strategy::RotateOnBan),
             "loadbalance" => Ok(Strategy::LoadBalance),
             "nanoswitch" => Ok(Strategy::NanoSwitch),
