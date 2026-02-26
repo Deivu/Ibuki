@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::collections::HashSet;
@@ -104,11 +104,18 @@ impl IpBlock {
             .parse()
             .map_err(|e| format!("Invalid mask: {}", e))?;
 
-        match base_ip {
-            IpAddr::V4(_) if mask > 32 => return Err(format!("Invalid IPv4 mask: {}", mask)),
-            IpAddr::V6(_) if mask > 128 => return Err(format!("Invalid IPv6 mask: {}", mask)),
-            _ => {}
-        }
+        let base_ip = match base_ip {
+            IpAddr::V4(v4) => {
+                if mask > 32 { return Err(format!("Invalid IPv4 mask: {}", mask)); }
+                let mask_val = if mask == 0 { 0 } else { u32::MAX << (32 - mask) };
+                IpAddr::V4(Ipv4Addr::from(u32::from(v4) & mask_val))
+            }
+            IpAddr::V6(v6) => {
+                if mask > 128 { return Err(format!("Invalid IPv6 mask: {}", mask)); }
+                let mask_val = if mask == 0 { 0 } else { u128::MAX << (128 - mask) };
+                IpAddr::V6(Ipv6Addr::from(u128::from(v6) & mask_val))
+            }
+        };
 
         Ok(IpBlock { base_ip, mask })
     }
@@ -309,8 +316,7 @@ impl RoutePlanner {
             .unwrap_or(0);
         
         let rotate_idx = self.rotate_index.load(Ordering::Relaxed) as u128;
-        let sub_block_shift = rotate_idx.wrapping_mul(1u128 << 64);
-        let combined_index = (sub_block_shift.wrapping_add(nano)) % total;
+        let combined_index = nano.wrapping_add(rotate_idx) % total;
 
         let search_limit = std::cmp::min(total, 1024);
         for offset in 0..search_limit {
@@ -375,6 +381,7 @@ impl RoutePlanner {
     }
 
     pub fn get_status(&self) -> RoutePlannerStatus {
+        self.cleanup_expired_bans();
         let class_name = match self.strategy {
             Strategy::RotateOnBan => "RotateOnBanIpRoutePlanner",
             Strategy::LoadBalance => "BalancingIpRoutePlanner",
@@ -423,6 +430,7 @@ impl RoutePlanner {
     }
 
     pub fn available_ips(&self) -> u128 {
+        self.cleanup_expired_bans();
         let total = self.total_slots();
         let banned = self.banned_ips.len() as u128;
         let excluded = self.excluded_ips.len() as u128;

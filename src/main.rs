@@ -1,9 +1,13 @@
 #![recursion_limit = "256"]
+use std::env::set_var;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
+
 use crate::models::{ApiCpu, ApiMemory, ApiNodeMessage, ApiStats};
 use crate::source::amazonmusic::source::AmazonMusic;
 use crate::source::applemusic::source::AppleMusic;
 use crate::source::deezer::source::Deezer;
-// use crate::source::gaana::source::Gaana;
 use crate::source::http::Http;
 use crate::source::jiosaavn::source::JioSaavn;
 use crate::source::soundcloud::source::SoundCloud;
@@ -16,6 +20,7 @@ use crate::util::headers::generate_headers;
 use crate::util::source::{FixAsyncTraitSource, Source};
 use crate::util::task::{AddTask, TasksManager};
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
+
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing;
@@ -26,17 +31,13 @@ use dashmap::DashMap;
 use dotenv::dotenv;
 use kameo::actor::ActorRef;
 use mimalloc::MiMalloc;
+use moka::sync::Cache;
 use reqwest::{Client, ClientBuilder};
 use songbird::driver::Scheduler;
 use songbird::id::UserId;
-use std::env::set_var;
-use std::net::{IpAddr, SocketAddr};
-use std::sync::LazyLock;
-use moka::sync::Cache;
 use tokio::main;
 use tokio::net;
 use tokio::task::JoinSet;
-use tokio::time::{Duration, Instant};
 use tower::ServiceBuilder;
 use tracing::Level;
 use tracing_subscriber::fmt;
@@ -72,7 +73,7 @@ pub static ROUTE_PLANNER: LazyLock<Option<RoutePlanner>> = LazyLock::new(|| {
     })
 });
 static REQWEST: LazyLock<Client> = LazyLock::new(|| {
-    create_reqwest_client(None)
+    create_reqwest_client(None).expect("Failed to initialize default REQWEST client")
 });
 
 static CLIENT_POOL: LazyLock<Cache<IpAddr, Client>> = LazyLock::new(|| {
@@ -82,12 +83,12 @@ static CLIENT_POOL: LazyLock<Cache<IpAddr, Client>> = LazyLock::new(|| {
         .build()
 });
 
-fn create_reqwest_client(local_address: Option<IpAddr>) -> Client {
-    let mut builder = ClientBuilder::new().default_headers(generate_headers().unwrap());
+fn create_reqwest_client(local_address: Option<IpAddr>) -> Result<Client, Box<dyn std::error::Error + Send + Sync>> {
+    let mut builder = ClientBuilder::new().default_headers(generate_headers()?);
     if let Some(addr) = local_address {
         builder = builder.local_address(addr);
     }
-    builder.build().expect("Failed to create reqwest client")
+    builder.build().map_err(|e| e.into())
 }
 
 pub fn get_client() -> (Client, Option<IpAddr>) {
@@ -96,9 +97,16 @@ pub fn get_client() -> (Client, Option<IpAddr>) {
             if let Some(client) = CLIENT_POOL.get(&ip) {
                 return (client, Some(ip));
             }
-            let client = create_reqwest_client(Some(ip));
-            CLIENT_POOL.insert(ip, client.clone());
-            return (client, Some(ip));
+            
+            match create_reqwest_client(Some(ip)) {
+                Ok(client) => {
+                    CLIENT_POOL.insert(ip, client.clone());
+                    return (client, Some(ip));
+                }
+                Err(e) => {
+                    tracing::error!("RoutePlanner: Failed to create client for IP {}: {}. Falling back to default client.", ip, e);
+                }
+            }
         }
     }
     (REQWEST.clone(), None)
