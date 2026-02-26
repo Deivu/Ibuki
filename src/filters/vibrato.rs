@@ -60,10 +60,8 @@ impl AudioFilter for VibratoFilter {
             let idx1 = (idx0 + 1) % Self::MAX_DELAY;
             let frac = read_pos.fract() as f32;
 
-            let left_out =
-                self.delay_left[idx0] * (1.0 - frac) + self.delay_left[idx1] * frac;
-            let right_out =
-                self.delay_right[idx0] * (1.0 - frac) + self.delay_right[idx1] * frac;
+            let left_out = self.delay_left[idx0] * (1.0 - frac) + self.delay_left[idx1] * frac;
+            let right_out = self.delay_right[idx0] * (1.0 - frac) + self.delay_right[idx1] * frac;
 
             chunk[0] = left_out.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
             chunk[1] = right_out.clamp(i16::MIN as f32, i16::MAX as f32) as i16;

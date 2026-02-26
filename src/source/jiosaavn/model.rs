@@ -86,4 +86,3 @@ fn clean_html_entities(text: &str) -> String {
         .replace("&lt;", "<")
         .replace("&gt;", ">")
 }
-

@@ -68,6 +68,5 @@ impl AudioFilter for ChannelMixFilter {
         "ChannelMix"
     }
 
-    fn reset(&mut self) {
-    }
+    fn reset(&mut self) {}
 }

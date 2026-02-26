@@ -1,15 +1,13 @@
 use async_trait::async_trait;
 use reqwest::Client;
-use serde_json::{Value};
+use serde_json::Value;
 use songbird::input::{HttpRequest, Input};
-use songbird::tracks::Track;
 use tracing::{debug, warn};
-use std::sync::Arc;
 
 use super::manager::YouTubeManager;
-use crate::util::source::{Query, Source};
 use crate::models::{ApiTrack, ApiTrackInfo, ApiTrackResult};
 use crate::util::errors::ResolverError;
+use crate::util::source::{Query, Source};
 
 pub struct Youtube {
     manager: YouTubeManager,
@@ -25,9 +23,21 @@ impl Youtube {
     fn parse_video_details(&self, details: &Value) -> Option<ApiTrackInfo> {
         let id = details.get("videoId")?.as_str()?.to_string();
         let title = details.get("title")?.as_str()?.to_string();
-        let author = details.get("author")?.as_str().unwrap_or("Unknown Author").to_string();
-        let length = details.get("lengthSeconds")?.as_str()?.parse::<u64>().unwrap_or(0) * 1000;
-        let is_stream = details.get("isLiveContent").and_then(|v| v.as_bool()).unwrap_or(false);
+        let author = details
+            .get("author")?
+            .as_str()
+            .unwrap_or("Unknown Author")
+            .to_string();
+        let length = details
+            .get("lengthSeconds")?
+            .as_str()?
+            .parse::<u64>()
+            .unwrap_or(0)
+            * 1000;
+        let is_stream = details
+            .get("isLiveContent")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         Some(ApiTrackInfo {
             title,
@@ -53,7 +63,7 @@ impl Youtube {
                         return;
                     }
                 }
-                
+
                 for (_, v) in obj.iter() {
                     self.extract_video_renderers(v, tracks);
                 }
@@ -69,8 +79,9 @@ impl Youtube {
 
     fn parse_video_renderer(&self, obj: &serde_json::Map<String, Value>) -> Option<ApiTrack> {
         let id = obj.get("videoId")?.as_str()?;
-        
-        let title = obj.get("title")
+
+        let title = obj
+            .get("title")
             .and_then(|t| t.get("runs"))
             .and_then(|r| r.as_array())
             .and_then(|r| r.first())
@@ -78,7 +89,8 @@ impl Youtube {
             .and_then(|t| t.as_str())
             .or_else(|| obj.get("title").and_then(|t| t.as_str()))?;
 
-        let author = obj.get("ownerText")
+        let author = obj
+            .get("ownerText")
             .or_else(|| obj.get("shortBylineText"))
             .and_then(|owner| owner.get("runs"))
             .and_then(|r| r.as_array())
@@ -88,11 +100,13 @@ impl Youtube {
             .unwrap_or("Unknown")
             .to_string();
 
-        let is_live = obj.get("badges")
+        let is_live = obj
+            .get("badges")
             .and_then(|b| b.as_array())
             .map(|badges| {
                 badges.iter().any(|badge| {
-                    badge.get("metadataBadgeRenderer")
+                    badge
+                        .get("metadataBadgeRenderer")
                         .and_then(|r| r.get("style"))
                         .and_then(|s| s.as_str())
                         .map(|s| s.contains("LIVE"))
@@ -120,7 +134,8 @@ impl Youtube {
                         .and_then(|overlays| overlays.as_array())
                         .and_then(|arr| {
                             arr.iter().find_map(|overlay| {
-                                overlay.get("thumbnailOverlayTimeStatusRenderer")
+                                overlay
+                                    .get("thumbnailOverlayTimeStatusRenderer")
                                     .and_then(|r| r.get("text"))
                                     .and_then(|t| t.get("runs"))
                                     .and_then(|r| r.as_array())
@@ -135,7 +150,8 @@ impl Youtube {
                         .and_then(|overlays| overlays.as_array())
                         .and_then(|arr| {
                             arr.iter().find_map(|overlay| {
-                                overlay.get("thumbnailOverlayTimeStatusRenderer")
+                                overlay
+                                    .get("thumbnailOverlayTimeStatusRenderer")
                                     .and_then(|r| r.get("text"))
                                     .and_then(|t| t.get("simpleText"))
                                     .and_then(|s| s.as_str())
@@ -188,7 +204,8 @@ impl Youtube {
         Some(ApiTrack {
             encoded: crate::util::encoder::encode_track(&info).ok()?,
             info,
-            plugin_info: crate::models::Empty, user_data: None
+            plugin_info: crate::models::Empty,
+            user_data: None,
         })
     }
 }
@@ -205,16 +222,24 @@ impl Source for Youtube {
 
     fn parse_query(&self, query: &str) -> Option<Query> {
         if query.starts_with("ytsearch:") {
-           return Some(Query::Search(query.strip_prefix("ytsearch:").unwrap().to_string()));
+            return Some(Query::Search(
+                query.strip_prefix("ytsearch:").unwrap().to_string(),
+            ));
         }
         if query.starts_with("spsearch:") {
-           return Some(Query::Search(query.strip_prefix("spsearch:").unwrap().to_string()));
+            return Some(Query::Search(
+                query.strip_prefix("spsearch:").unwrap().to_string(),
+            ));
         }
         if query.starts_with("scsearch:") {
-           return Some(Query::Search(query.strip_prefix("scsearch:").unwrap().to_string()));
+            return Some(Query::Search(
+                query.strip_prefix("scsearch:").unwrap().to_string(),
+            ));
         }
         if query.starts_with("ymsearch:") {
-           return Some(Query::Search(query.strip_prefix("ymsearch:").unwrap().to_string()));
+            return Some(Query::Search(
+                query.strip_prefix("ymsearch:").unwrap().to_string(),
+            ));
         }
         if query.contains("youtube.com") || query.contains("youtu.be") {
             return Some(Query::Url(query.to_string()));
@@ -241,10 +266,10 @@ impl Source for Youtube {
                         return Err(e);
                     }
                 };
-                
+
                 let mut tracks = Vec::new();
                 self.extract_video_renderers(&res, &mut tracks);
-                
+
                 if !tracks.is_empty() {
                     debug!("YouTube: Returning {} tracks", tracks.len());
                     return Ok(Some(ApiTrackResult::Search(tracks)));
@@ -252,9 +277,10 @@ impl Source for Youtube {
                     warn!("YouTube: No videoRenderer objects found in response");
                 }
                 Ok(None)
-            },
+            }
             Query::Url(url) => {
-                let stripped = if let Some(s) = url.strip_prefix("https://www.youtube.com/watch?v=") {
+                let stripped = if let Some(s) = url.strip_prefix("https://www.youtube.com/watch?v=")
+                {
                     s
                 } else if let Some(s) = url.strip_prefix("https://youtu.be/") {
                     s
@@ -263,22 +289,27 @@ impl Source for Youtube {
                 };
 
                 let video_id = stripped.split(&['&', '?'][..]).next().unwrap_or("");
-                
-                if video_id.len() != 11 || !video_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+
+                if video_id.len() != 11
+                    || !video_id
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                {
                     tracing::warn!("YouTube: Invalid video ID extracted: {}", video_id);
                     return Ok(None);
                 }
 
                 let info = self.manager.resolve_video(video_id).await?;
-                
+
                 if let Some(details) = info.get("videoDetails") {
-                     if let Some(track_info) = self.parse_video_details(details) {
-                             return Ok(Some(ApiTrackResult::Track(ApiTrack {
-                                 encoded: crate::util::encoder::encode_track(&track_info)?,
-                                 info: track_info,
-                                 plugin_info: crate::models::Empty, user_data: None
-                             })));
-                     }
+                    if let Some(track_info) = self.parse_video_details(details) {
+                        return Ok(Some(ApiTrackResult::Track(ApiTrack {
+                            encoded: crate::util::encoder::encode_track(&track_info)?,
+                            info: track_info,
+                            plugin_info: crate::models::Empty,
+                            user_data: None,
+                        })));
+                    }
                 }
                 Ok(None)
             }

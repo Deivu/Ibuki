@@ -1,6 +1,6 @@
-use std::time::Duration;
 use reqwest::{Client, StatusCode};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::time::Duration;
 use tracing::error;
 
 use super::clients::{InnertubeClient, InnertubeContext};
@@ -31,7 +31,6 @@ impl InnertubeApi {
         payload: Value,
         extra_headers: &[(String, String)],
     ) -> Result<Value, ResolverError> {
-
         let (http_client, bound_ip) = crate::get_client();
         let mut req_builder = http_client.post(format!("{}{}", YOUTUBE_API_URL, endpoint));
         for (k, v) in extra_headers {
@@ -48,10 +47,7 @@ impl InnertubeApi {
             }
         }
 
-        let res = req_builder
-            .json(&final_payload)
-            .send()
-            .await;
+        let res = req_builder.json(&final_payload).send().await;
 
         let (res, fallback_used) = match res {
             Ok(r) => (r, false),
@@ -60,14 +56,21 @@ impl InnertubeApi {
                     return Err(ResolverError::Reqwest(e));
                 }
 
-                tracing::error!("RoutePlanner: System failed to bind to local IP {:?}. Check your 'ipBlocks' in config.json. OS Error: {}", bound_ip, e);
-                tracing::warn!("RoutePlanner: Falling back to default system interface for this request.");
-                
+                tracing::error!(
+                    "RoutePlanner: System failed to bind to local IP {:?}. Check your 'ipBlocks' in config.json. OS Error: {}",
+                    bound_ip,
+                    e
+                );
+                tracing::warn!(
+                    "RoutePlanner: Falling back to default system interface for this request."
+                );
+
                 if let (Some(planner), Some(ip)) = (&*crate::ROUTE_PLANNER, bound_ip) {
                     planner.ban_ip(ip);
                 }
-                
-                let mut fallback_builder = crate::REQWEST.post(format!("{}{}", YOUTUBE_API_URL, endpoint));
+
+                let mut fallback_builder =
+                    crate::REQWEST.post(format!("{}{}", YOUTUBE_API_URL, endpoint));
                 for (k, v) in extra_headers {
                     fallback_builder = fallback_builder.header(k, v);
                 }
@@ -77,7 +80,7 @@ impl InnertubeApi {
                     .send()
                     .await
                     .map_err(ResolverError::Reqwest)?;
-                
+
                 (fallback_res, true)
             }
         };
@@ -89,10 +92,10 @@ impl InnertubeApi {
         }
 
         if !res.status().is_success() {
-             let status = res.status();
-             let text = res.text().await.unwrap_or_default();
-             error!("Innertube API Error: {} - {}", status, text);
-             return Err(ResolverError::Custom(format!("API Error: {}", status)));
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            error!("Innertube API Error: {} - {}", status, text);
+            return Err(ResolverError::Custom(format!("API Error: {}", status)));
         }
 
         let body: Value = res.json().await.map_err(ResolverError::Reqwest)?;
@@ -112,7 +115,10 @@ impl InnertubeApi {
         });
 
         if let Some(p) = params {
-            payload.as_object_mut().unwrap().insert("params".to_string(), json!(p));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("params".to_string(), json!(p));
         }
 
         let mut context = client.context();
@@ -129,7 +135,8 @@ impl InnertubeApi {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
         }
 
-        self.make_request("/search", client, &context, payload, &headers).await
+        self.make_request("/search", client, &context, payload, &headers)
+            .await
     }
 
     pub async fn player(
@@ -160,41 +167,52 @@ impl InnertubeApi {
         });
 
         if let Some(pid) = playlist_id {
-            payload.as_object_mut().unwrap().insert("playlistId".to_string(), json!(pid));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("playlistId".to_string(), json!(pid));
         }
 
         if let Some(start) = start_time {
-             payload.as_object_mut().unwrap().insert("startTimeSecs".to_string(), json!(start));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("startTimeSecs".to_string(), json!(start));
         }
 
         if let Some(timestamp) = signature_timestamp {
-            if let Some(obj) = payload.get_mut("playbackContext")
+            if let Some(obj) = payload
+                .get_mut("playbackContext")
                 .and_then(|pc| pc.get_mut("contentPlaybackContext"))
-                .and_then(|cc| cc.as_object_mut()) 
+                .and_then(|cc| cc.as_object_mut())
             {
                 obj.insert("signatureTimestamp".to_string(), json!(timestamp));
             }
         }
-        
+
         let mut context = client.context();
         if let Some(vd) = visitor_data {
-             context.client.visitor_data = Some(vd.to_string());
+            context.client.visitor_data = Some(vd.to_string());
         }
 
         let mut headers = client.extra_headers();
         if let Some(token) = oauth_token {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
         }
-        
+
         if let Some(po) = po_token {
-             if let Some(p) = payload.as_object_mut() {
-                 p.insert("serviceIntegrityDimensions".to_string(), json!({
-                     "poToken": po
-                 }));
-             }
+            if let Some(p) = payload.as_object_mut() {
+                p.insert(
+                    "serviceIntegrityDimensions".to_string(),
+                    json!({
+                        "poToken": po
+                    }),
+                );
+            }
         }
 
-        self.make_request("/player", client, &context, payload, &headers).await
+        self.make_request("/player", client, &context, payload, &headers)
+            .await
     }
 
     pub async fn next(
@@ -209,27 +227,37 @@ impl InnertubeApi {
         let mut payload = json!({});
 
         if let Some(vid) = video_id {
-            payload.as_object_mut().unwrap().insert("videoId".to_string(), json!(vid));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("videoId".to_string(), json!(vid));
         }
 
         if let Some(pid) = playlist_id {
-            payload.as_object_mut().unwrap().insert("playlistId".to_string(), json!(pid));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("playlistId".to_string(), json!(pid));
         }
 
         if let Some(cont) = continuation {
-            payload.as_object_mut().unwrap().insert("continuation".to_string(), json!(cont));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("continuation".to_string(), json!(cont));
         }
-        
+
         let mut context = client.context();
         if let Some(vd) = visitor_data {
-             context.client.visitor_data = Some(vd.to_string());
+            context.client.visitor_data = Some(vd.to_string());
         }
-        
+
         let mut headers = client.extra_headers();
         if let Some(token) = oauth_token {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
         }
 
-        self.make_request("/next", client, &context, payload, &headers).await
+        self.make_request("/next", client, &context, payload, &headers)
+            .await
     }
 }

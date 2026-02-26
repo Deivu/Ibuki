@@ -1,8 +1,8 @@
+use crate::source::youtube::api::YOUTUBE_API_URL;
+use crate::util::http::is_bind_error;
 use reqwest::Client;
 use serde_json::Value;
 use tracing::{debug, warn};
-use crate::source::youtube::api::YOUTUBE_API_URL;
-use crate::util::http::is_bind_error;
 
 pub struct Sabr {
     http: Client,
@@ -36,7 +36,11 @@ impl Sabr {
                     return None;
                 }
 
-                tracing::error!("RoutePlanner: Sabr(Embed): System failed to bind to local IP {:?}. OS Error: {}", bound_ip, e);
+                tracing::error!(
+                    "RoutePlanner: Sabr(Embed): System failed to bind to local IP {:?}. OS Error: {}",
+                    bound_ip,
+                    e
+                );
                 if let (Some(planner), Some(ip)) = (&*crate::ROUTE_PLANNER, bound_ip) {
                     planner.ban_ip(ip);
                 }
@@ -46,7 +50,7 @@ impl Sabr {
                     .send()
                     .await
                     .ok()?;
-                
+
                 (fallback_res, true)
             }
         };
@@ -60,7 +64,11 @@ impl Sabr {
         if response.status().is_success() {
             let body = response.text().await.ok()?;
             let visitor_regex = regex::Regex::new(r#""VISITOR_DATA":"([^"]+)""#).ok()?;
-            if let Some(data) = visitor_regex.captures(&body).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()) {
+            if let Some(data) = visitor_regex
+                .captures(&body)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string())
+            {
                 debug!("Fetched visitor data from embed: {}", data);
                 self.visitor_data = Some(data.clone());
                 return Some(data);
@@ -81,7 +89,8 @@ impl Sabr {
         });
 
         let (http_client, bound_ip) = crate::get_client();
-        let res = http_client.post(format!("{}/guide", YOUTUBE_API_URL))
+        let res = http_client
+            .post(format!("{}/guide", YOUTUBE_API_URL))
             .json(&payload)
             .send()
             .await;
@@ -93,30 +102,36 @@ impl Sabr {
                     return None;
                 }
 
-                tracing::error!("RoutePlanner: Sabr(API): System failed to bind to local IP {:?}. OS Error: {}", bound_ip, e);
+                tracing::error!(
+                    "RoutePlanner: Sabr(API): System failed to bind to local IP {:?}. OS Error: {}",
+                    bound_ip,
+                    e
+                );
                 if let (Some(planner), Some(ip)) = (&*crate::ROUTE_PLANNER, bound_ip) {
                     planner.ban_ip(ip);
                 }
-                let fallback_res = crate::REQWEST.post(format!("{}/guide", YOUTUBE_API_URL))
+                let fallback_res = crate::REQWEST
+                    .post(format!("{}/guide", YOUTUBE_API_URL))
                     .json(&payload)
                     .send()
                     .await
                     .ok()?;
-                
+
                 (fallback_res, true)
             }
         };
-        
+
         if !fallback_used && res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
             if let (Some(planner), Some(ip)) = (&*crate::ROUTE_PLANNER, bound_ip) {
                 planner.ban_ip(ip);
             }
         }
-        
+
         let body: Value = res.json().await.ok()?;
-        if let Some(visitor_data) = body.get("responseContext")
+        if let Some(visitor_data) = body
+            .get("responseContext")
             .and_then(|rc| rc.get("visitorData"))
-            .and_then(|v| v.as_str()) 
+            .and_then(|v| v.as_str())
         {
             debug!("Fetched visitor data from API: {}", visitor_data);
             self.visitor_data = Some(visitor_data.to_string());
@@ -129,11 +144,11 @@ impl Sabr {
     pub async fn generate_po_token(&mut self) -> Option<String> {
         // Placeholder for PO Token generation logic.
         // For accurate porting, we would need to know the specific fields or have an external generator.
-        // 
-        // Current Strategy: 
+        //
+        // Current Strategy:
         // 1. If we have a stored token, return it.
         // 2. If not, try to generate/fetch (Not implemented yet w/o implementation details).
-        
+
         if let Some(token) = &self.po_token {
             return Some(token.clone());
         }

@@ -117,4 +117,3 @@ pub struct ArtistAttributes {
     pub name: String,
     pub artwork: Option<Artwork>,
 }
-

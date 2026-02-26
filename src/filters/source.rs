@@ -1,15 +1,15 @@
-use async_trait::async_trait;
-use songbird::input::{AudioStream, AudioStreamError, Compose};
 use crate::filters::processor::FilterChain;
+use async_trait::async_trait;
+use songbird::input::codecs::{get_codec_registry, get_probe};
+use songbird::input::{AudioStream, AudioStreamError, Compose};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
 use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use songbird::input::codecs::{get_codec_registry, get_probe};
 
 const WAV_HEADER_SIZE: usize = 44;
 
@@ -41,7 +41,12 @@ impl FilteredSource {
         sample_rate: u32,
         channels: usize,
     ) -> Result<Self, io::Error> {
-        tracing::info!("FilteredSource::new ENTRY: sample_rate={}, channels={}, hint={:?}", sample_rate, channels, hint);
+        tracing::info!(
+            "FilteredSource::new ENTRY: sample_rate={}, channels={}, hint={:?}",
+            sample_rate,
+            channels,
+            hint
+        );
 
         let seekable = source.is_seekable();
         tracing::debug!("Creating MediaSourceStream, seekable={}", seekable);
@@ -80,12 +85,19 @@ impl FilteredSource {
             .map(|c| c.count())
             .unwrap_or(channels);
 
-        tracing::debug!("Creating decoder for track_id={}, codec={:?}", track_id, track.codec_params.codec);
+        tracing::debug!(
+            "Creating decoder for track_id={}, codec={:?}",
+            track_id,
+            track.codec_params.codec
+        );
         let decoder = get_codec_registry()
             .make(&track.codec_params, &DecoderOptions::default())
             .map_err(|e| {
                 tracing::error!("Decoder creation failed: {e}");
-                io::Error::new(io::ErrorKind::Other, format!("Decoder creation failed: {e}"))
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Decoder creation failed: {e}"),
+                )
             })?;
 
         tracing::info!(
@@ -125,15 +137,13 @@ impl FilteredSource {
     }
 }
 
-
 impl Read for FilteredSource {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if !self.header_sent {
             let avail = WAV_HEADER_SIZE - self.header_pos;
             if avail > 0 {
                 let n = buf.len().min(avail);
-                buf[..n]
-                    .copy_from_slice(&self.header[self.header_pos..self.header_pos + n]);
+                buf[..n].copy_from_slice(&self.header[self.header_pos..self.header_pos + n]);
                 self.header_pos += n;
                 if self.header_pos >= WAV_HEADER_SIZE {
                     self.header_sent = true;
@@ -147,8 +157,7 @@ impl Read for FilteredSource {
             if self.pcm_pos < self.pcm_buffer.len() {
                 let avail = self.pcm_buffer.len() - self.pcm_pos;
                 let n = buf.len().min(avail);
-                buf[..n]
-                    .copy_from_slice(&self.pcm_buffer[self.pcm_pos..self.pcm_pos + n]);
+                buf[..n].copy_from_slice(&self.pcm_buffer[self.pcm_pos..self.pcm_pos + n]);
                 self.pcm_pos += n;
                 return Ok(n);
             }
@@ -175,7 +184,6 @@ impl Read for FilteredSource {
                 }
             };
 
-
             if packet.track_id() != self.track_id {
                 continue;
             }
@@ -190,7 +198,6 @@ impl Read for FilteredSource {
                     ));
                 }
             };
-
 
             let spec = *decoded.spec();
             let frames = decoded.frames();
@@ -280,49 +287,57 @@ impl Seek for FilteredSource {
                         Ok(byte_pos)
                     }
                     Err(e) => {
-                        tracing::debug!("Inner format seek failed ({}). Resolving via manual packet discard to frame {}", e, frame_offset);
+                        tracing::debug!(
+                            "Inner format seek failed ({}). Resolving via manual packet discard to frame {}",
+                            e,
+                            frame_offset
+                        );
 
-                        if self.format.seek(
-                            symphonia::core::formats::SeekMode::Accurate,
-                            symphonia::core::formats::SeekTo::TimeStamp {
-                                ts: 0,
-                                track_id: self.track_id,
-                            },
-                        ).is_ok() {
+                        if self
+                            .format
+                            .seek(
+                                symphonia::core::formats::SeekMode::Accurate,
+                                symphonia::core::formats::SeekTo::TimeStamp {
+                                    ts: 0,
+                                    track_id: self.track_id,
+                                },
+                            )
+                            .is_ok()
+                        {
                             self.current_pcm_frame = 0;
                         }
-                        
+
                         self.decoder.reset();
                         self.pcm_buffer.clear();
                         self.pcm_pos = 0;
                         self.header_sent = true;
-                        
+
                         loop {
                             let packet = match self.format.next_packet() {
                                 Ok(p) => p,
                                 Err(symphonia::core::errors::Error::ResetRequired) => {
                                     self.decoder.reset();
                                     continue;
-                                },
+                                }
                                 Err(_) => break, // EOF or fatal read error, stop skipping
                             };
-                            
+
                             if packet.track_id() != self.track_id {
                                 continue;
                             }
-                            
+
                             let decoded = match self.decoder.decode(&packet) {
                                 Ok(d) => d,
                                 Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
                                 Err(_) => continue,
                             };
-                            
+
                             self.current_pcm_frame += decoded.frames() as u64;
                             if self.current_pcm_frame >= frame_offset {
                                 break;
                             }
                         }
-                        
+
                         if let Ok(mut chain) = self.filter_chain.lock() {
                             chain.reset_state();
                         }
@@ -399,28 +414,25 @@ impl FilteredCompose {
         sample_rate: u32,
         channels: usize,
     ) -> Result<AudioStream<Box<dyn MediaSource>>, AudioStreamError> {
-        tracing::debug!("FilteredCompose::build_filtered_blocking called, hint={:?}", stream.hint);
+        tracing::debug!(
+            "FilteredCompose::build_filtered_blocking called, hint={:?}",
+            stream.hint
+        );
 
         let hint = stream.hint.unwrap_or_default();
-        let filtered = FilteredSource::new(
-            stream.input,
-            hint,
-            filter_chain,
-            sample_rate,
-            channels,
-        )
-        .map_err(|e| {
-            let err_msg = format!("{e}");
-            if err_msg.contains("unsupported codec") {
-                tracing::warn!(
-                    "Unsupported codec detected (likely Opus/WebM). Filters cannot be applied. \
+        let filtered = FilteredSource::new(stream.input, hint, filter_chain, sample_rate, channels)
+            .map_err(|e| {
+                let err_msg = format!("{e}");
+                if err_msg.contains("unsupported codec") {
+                    tracing::warn!(
+                        "Unsupported codec detected (likely Opus/WebM). Filters cannot be applied. \
                      Consider using JioSaavn or other AAC/MP3 sources for filter support."
-                );
-            } else {
-                tracing::error!("FilteredSource::new failed in build_filtered_blocking: {e}");
-            }
-            AudioStreamError::Fail(Box::new(e))
-        })?;
+                    );
+                } else {
+                    tracing::error!("FilteredSource::new failed in build_filtered_blocking: {e}");
+                }
+                AudioStreamError::Fail(Box::new(e))
+            })?;
 
         tracing::debug!("FilteredCompose::build_filtered_blocking succeeded, returning WAV stream");
 
@@ -459,11 +471,11 @@ impl Compose for FilteredCompose {
         tracing::debug!(
             "Inner compose resolved successfully, spawning blocking task for symphonia probe..."
         );
-        
+
         let filter_chain = self.filter_chain.clone();
         let sample_rate = self.sample_rate;
         let channels = self.channels;
-        
+
         tokio::task::spawn_blocking(move || {
             Self::build_filtered_blocking(stream, filter_chain, sample_rate, channels)
         })

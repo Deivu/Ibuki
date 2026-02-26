@@ -60,7 +60,7 @@ impl PlayerManager {
             server_update: options.server_update,
             players: self.players.clone(),
         };
-        
+
         let player_ref = Player::spawn(player_options);
         self.players.insert(guild_id.clone(), player_ref.clone());
         match player_ref.wait_for_startup_result().await {

@@ -24,7 +24,10 @@ pub fn generate_headers() -> Result<HeaderMap<HeaderValue>, InvalidHeaderValue> 
     headers.insert("Sec-Fetch-Site", "none".parse()?);
     headers.insert("Sec-Fetch-User", "?1".parse()?);
     headers.insert("Upgrade-Insecure-Requests", "1".parse()?);
-    headers.insert("Sec-Ch-Ua", "\"Chromium\";v=\"122\", \"Not(A:Brand\";v=\"24\", \"Google Chrome\";v=\"122\"".parse()?);
+    headers.insert(
+        "Sec-Ch-Ua",
+        "\"Chromium\";v=\"122\", \"Not(A:Brand\";v=\"24\", \"Google Chrome\";v=\"122\"".parse()?,
+    );
     headers.insert("Sec-Ch-Ua-Mobile", "?0".parse()?);
     headers.insert("Sec-Ch-Ua-Platform", "\"Windows\"".parse()?);
 

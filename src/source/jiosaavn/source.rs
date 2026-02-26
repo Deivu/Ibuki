@@ -1,9 +1,9 @@
 use super::J_SECRET_KEY;
 use super::model::{
     JioSaavnAlbumResponse, JioSaavnArtistResponse, JioSaavnPlaylistResponse,
-    JioSaavnRecommendationsResponse, JioSaavnSearchResponse, JioSaavnTrack,
-    JioSaavnTrackResponse,
+    JioSaavnRecommendationsResponse, JioSaavnSearchResponse, JioSaavnTrack, JioSaavnTrackResponse,
 };
+use crate::CONFIG;
 use crate::models::{ApiTrack, ApiTrackInfo, ApiTrackResult};
 use crate::util::encoder::encode_track;
 use crate::util::errors::ResolverError;
@@ -11,12 +11,11 @@ use crate::util::source::{Query, Source};
 use crate::util::url::is_url;
 use async_trait::async_trait;
 use base64::prelude::*;
+use block_padding::Pkcs7;
+use des::cipher::{BlockDecryptMut, KeyInit};
 use regex::Regex;
 use reqwest::Client;
 use songbird::input::{HttpRequest, Input};
-use crate::CONFIG;
-use des::cipher::{BlockDecryptMut, KeyInit};
-use block_padding::Pkcs7;
 
 pub struct JioSaavn {
     client: Client,
@@ -41,7 +40,8 @@ impl Source for JioSaavn {
 
     fn parse_query(&self, query: &str) -> Option<Query> {
         if !is_url(query) {
-            if query.starts_with(self.search_prefix) || query.starts_with(self.recommendation_prefix)
+            if query.starts_with(self.search_prefix)
+                || query.starts_with(self.recommendation_prefix)
             {
                 return Some(Query::Search(query.to_string()));
             } else {
@@ -61,10 +61,7 @@ impl Source for JioSaavn {
     async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
         match query {
             Query::Url(url) => {
-                let captures = self
-                    .regex
-                    .captures(&url)
-                    .ok_or(ResolverError::InvalidUrl)?;
+                let captures = self.regex.captures(&url).ok_or(ResolverError::InvalidUrl)?;
                 let url_type = captures
                     .name("type")
                     .map(|m| m.as_str())
@@ -100,12 +97,11 @@ impl Source for JioSaavn {
 
 impl JioSaavn {
     pub fn new(client: Option<Client>) -> Self {
-        
         let config = CONFIG
             .jiosaavn_config
             .as_ref()
             .expect("JioSaavn config is required");
-        
+
         Self {
             client: client.unwrap_or_default(),
             regex: Regex::new(
@@ -152,7 +148,10 @@ impl JioSaavn {
         &self,
         identifier: &str,
     ) -> Result<Option<ApiTrackResult>, ResolverError> {
-        let url = format!("{}/recommendations?id={}&limit={}", self.api_url, identifier, self.recommendations_track_limit);
+        let url = format!(
+            "{}/recommendations?id={}&limit={}",
+            self.api_url, identifier, self.recommendations_track_limit
+        );
 
         let request = self.client.get(&url).build()?;
         let response = self.client.execute(request).await?;
@@ -239,7 +238,12 @@ impl JioSaavn {
     }
 
     async fn resolve_playlist(&self, url: &str) -> Result<Option<ApiTrackResult>, ResolverError> {
-        let api_url = format!("{}/playlist?url={}&limit={}", self.api_url, urlencoding::encode(url), self.playlist_track_limit);
+        let api_url = format!(
+            "{}/playlist?url={}&limit={}",
+            self.api_url,
+            urlencoding::encode(url),
+            self.playlist_track_limit
+        );
 
         let request = self.client.get(&api_url).build()?;
         let response = self.client.execute(request).await?;
@@ -338,7 +342,7 @@ impl JioSaavn {
             if decrypted_url.ends_with("_96.mp4") {
                 decrypted_url = decrypted_url.replace("_96.mp4", "_320.mp4");
             }
-            
+
             Ok(decrypted_url)
         } else {
             Err(ResolverError::MissingRequiredData("media URL"))
@@ -354,10 +358,15 @@ impl JioSaavn {
 
         let key_bytes = self.secret_key.as_bytes();
         if key_bytes.len() != 8 {
-            return Err(ResolverError::DecryptionError(format!("Invalid JioSaavn key length: expected 8, got {}", key_bytes.len())));
+            return Err(ResolverError::DecryptionError(format!(
+                "Invalid JioSaavn key length: expected 8, got {}",
+                key_bytes.len()
+            )));
         }
 
-        let cipher = DesEcb::new_from_slice(key_bytes).map_err(|e| ResolverError::DecryptionError(format!("Failed to initialize DesEcb: {:?}", e)))?;
+        let cipher = DesEcb::new_from_slice(key_bytes).map_err(|e| {
+            ResolverError::DecryptionError(format!("Failed to initialize DesEcb: {:?}", e))
+        })?;
 
         let mut buffer = encrypted_bytes;
         let decrypted = cipher
@@ -386,8 +395,8 @@ impl JioSaavn {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: crate::models::Empty, user_data: None
+            plugin_info: crate::models::Empty,
+            user_data: None,
         })
     }
 }
-

@@ -1,18 +1,17 @@
 use thiserror::Error;
 
-pub mod volume;
-pub mod equalizer;
-pub mod tremolo;
-pub mod vibrato;
-pub mod rotation;
-pub mod distortion;
 pub mod channel_mix;
+pub mod distortion;
+pub mod equalizer;
 pub mod karaoke;
 pub mod low_pass;
-pub mod timescale;
 pub mod processor;
+pub mod rotation;
 pub mod source;
-
+pub mod timescale;
+pub mod tremolo;
+pub mod vibrato;
+pub mod volume;
 
 #[derive(Error, Clone, Debug)]
 pub enum FilterError {
@@ -25,7 +24,6 @@ pub enum FilterError {
     #[error("Buffer size mismatch: expected even number of samples for stereo")]
     BufferSizeMismatch,
 }
-
 
 pub trait AudioFilter: Send + Sync {
     fn process(&mut self, samples: &mut [i16], sample_rate: u32) -> Result<(), FilterError>;

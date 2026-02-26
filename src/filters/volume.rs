@@ -40,6 +40,5 @@ impl AudioFilter for VolumeFilter {
         "Volume"
     }
 
-    fn reset(&mut self) {
-    }
+    fn reset(&mut self) {}
 }

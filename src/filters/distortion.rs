@@ -70,6 +70,5 @@ impl AudioFilter for DistortionFilter {
         "Distortion"
     }
 
-    fn reset(&mut self) {
-    }
+    fn reset(&mut self) {}
 }

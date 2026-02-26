@@ -10,13 +10,13 @@ use crate::source::applemusic::source::AppleMusic;
 use crate::source::deezer::source::Deezer;
 use crate::source::http::Http;
 use crate::source::jiosaavn::source::JioSaavn;
+use crate::source::songlink::source::Songlink;
 use crate::source::soundcloud::source::SoundCloud;
 use crate::source::spotify::source::Spotify;
-use crate::source::songlink::source::Songlink;
 use crate::source::youtube::source::Youtube;
 use crate::util::config::Config;
-use crate::util::routeplanner::RoutePlanner;
 use crate::util::headers::generate_headers;
+use crate::util::routeplanner::RoutePlanner;
 use crate::util::source::{FixAsyncTraitSource, Source};
 use crate::util::task::{AddTask, TasksManager};
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
@@ -43,8 +43,8 @@ use tracing::Level;
 use tracing_subscriber::fmt;
 
 mod constants;
-mod middlewares;
 mod filters;
+mod middlewares;
 mod models;
 mod playback;
 mod routes;
@@ -62,15 +62,16 @@ static SOURCES: LazyLock<DashMap<String, FixAsyncTraitSource>> = LazyLock::new(D
 static TASKS: LazyLock<TasksManager<String>> = LazyLock::new(TasksManager::default);
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 pub static ROUTE_PLANNER: LazyLock<Option<RoutePlanner>> = LazyLock::new(|| {
-    CONFIG.route_planner.as_ref().and_then(|config| {
-        match RoutePlanner::new(config) {
+    CONFIG
+        .route_planner
+        .as_ref()
+        .and_then(|config| match RoutePlanner::new(config) {
             Ok(planner) => Some(planner),
             Err(e) => {
                 tracing::error!("Failed to initialize RoutePlanner: {}", e);
                 None
             }
-        }
-    })
+        })
 });
 static REQWEST: LazyLock<Client> = LazyLock::new(|| {
     create_reqwest_client(None).expect("Failed to initialize default REQWEST client")
@@ -83,7 +84,9 @@ static CLIENT_POOL: LazyLock<Cache<IpAddr, Client>> = LazyLock::new(|| {
         .build()
 });
 
-fn create_reqwest_client(local_address: Option<IpAddr>) -> Result<Client, Box<dyn std::error::Error + Send + Sync>> {
+fn create_reqwest_client(
+    local_address: Option<IpAddr>,
+) -> Result<Client, Box<dyn std::error::Error + Send + Sync>> {
     let mut builder = ClientBuilder::new().default_headers(generate_headers()?);
     if let Some(addr) = local_address {
         builder = builder.local_address(addr);
@@ -97,23 +100,26 @@ pub fn get_client() -> (Client, Option<IpAddr>) {
             if let Some(client) = CLIENT_POOL.get(&ip) {
                 return (client, Some(ip));
             }
-            
+
             match create_reqwest_client(Some(ip)) {
                 Ok(client) => {
                     CLIENT_POOL.insert(ip, client.clone());
                     return (client, Some(ip));
                 }
                 Err(e) => {
-                    tracing::error!("RoutePlanner: Failed to create client for IP {}: {}. Falling back to default client.", ip, e);
+                    tracing::error!(
+                        "RoutePlanner: Failed to create client for IP {}: {}. Falling back to default client.",
+                        ip,
+                        e
+                    );
                 }
             }
         }
     }
     (REQWEST.clone(), None)
 }
-pub static SYSTEM: LazyLock<tokio::sync::Mutex<sysinfo::System>> = LazyLock::new(|| {
-    tokio::sync::Mutex::new(sysinfo::System::new())
-});
+pub static SYSTEM: LazyLock<tokio::sync::Mutex<sysinfo::System>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(sysinfo::System::new()));
 
 #[main(flavor = "multi_thread")]
 async fn main() {
@@ -166,10 +172,18 @@ async fn main() {
         register_source!(AmazonMusic, Some(REQWEST.clone()));
     }
     if CONFIG.applemusic_config.is_some() {
-        register_source!(AppleMusic, Some(REQWEST.clone()), CONFIG.applemusic_config.as_ref());
+        register_source!(
+            AppleMusic,
+            Some(REQWEST.clone()),
+            CONFIG.applemusic_config.as_ref()
+        );
     }
     if CONFIG.soundcloud_config.is_some() {
-        register_source!(SoundCloud, Some(REQWEST.clone()), CONFIG.soundcloud_config.as_ref());
+        register_source!(
+            SoundCloud,
+            Some(REQWEST.clone()),
+            CONFIG.soundcloud_config.as_ref()
+        );
     }
 
     create_tasks().await;
@@ -262,7 +276,9 @@ async fn create_tasks() {
                 }
             };
 
-            let Ok(mut stat) = perf_monitor::cpu::ProcessStat::cur() else { return };
+            let Ok(mut stat) = perf_monitor::cpu::ProcessStat::cur() else {
+                return;
+            };
             let cores = perf_monitor::cpu::processor_numbers().unwrap_or(1);
 
             let Ok(process_memory_info) = perf_monitor::mem::get_process_memory_info() else {
@@ -332,4 +348,3 @@ async fn create_tasks() {
     };
     TASKS.add(task);
 }
-

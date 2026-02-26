@@ -152,4 +152,3 @@ pub struct TrackDurationTemplate {
     #[serde(rename = "headerTertiaryText")]
     pub header_tertiary_text: Option<String>,
 }
-

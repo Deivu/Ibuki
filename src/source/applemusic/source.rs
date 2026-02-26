@@ -1,12 +1,14 @@
 use super::model::*;
 use super::*;
-use crate::models::{ApiPlaylistInfo, ApiTrack, ApiTrackInfo, ApiTrackPlaylist, ApiTrackResult, Empty};
+use crate::models::{
+    ApiPlaylistInfo, ApiTrack, ApiTrackInfo, ApiTrackPlaylist, ApiTrackResult, Empty,
+};
 use crate::util::encoder::encode_track;
 use crate::util::errors::ResolverError;
 use crate::util::source::{Query, Source};
 use crate::util::url::is_url;
 use async_trait::async_trait;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use regex::Regex;
 use reqwest::Client;
 use songbird::input::Input;
@@ -29,27 +31,24 @@ pub struct AppleMusic {
 }
 
 impl AppleMusic {
-    pub fn new(client: Option<Client>, config: Option<&crate::util::config::AppleMusicConfig>) -> Self {
+    pub fn new(
+        client: Option<Client>,
+        config: Option<&crate::util::config::AppleMusicConfig>,
+    ) -> Self {
         let country = config
             .and_then(|c| c.market.clone())
             .unwrap_or_else(|| "US".to_string());
-        
-        let playlist_page_limit = config
-            .and_then(|c| c.playlist_load_limit)
-            .unwrap_or(0);
-        
-        let album_page_limit = config
-            .and_then(|c| c.album_load_limit)
-            .unwrap_or(0);
-        
-        let allow_explicit = config
-            .and_then(|c| c.allow_explicit)
-            .unwrap_or(true);
-        
+
+        let playlist_page_limit = config.and_then(|c| c.playlist_load_limit).unwrap_or(0);
+
+        let album_page_limit = config.and_then(|c| c.album_load_limit).unwrap_or(0);
+
+        let allow_explicit = config.and_then(|c| c.allow_explicit).unwrap_or(true);
+
         let config_token = config
             .and_then(|c| c.media_api_token.clone())
             .filter(|t| t != "token_here" && !t.is_empty());
-        
+
         Self {
             client: client.unwrap_or_default(),
             url_regex: Regex::new(
@@ -84,7 +83,7 @@ impl AppleMusic {
                 expiry,
                 cached_at: Instant::now(),
             };
-            
+
             if self.is_token_valid(&token) {
                 *cache = Some(token.clone());
                 return Ok(token);
@@ -123,13 +122,15 @@ impl AppleMusic {
 
         let html = html_response.text().await?;
 
-        let script_tag_regex = Regex::new(r#"<script\s+type="module"\s+crossorigin\s+src="([^"]+)""#)
-            .unwrap();
+        let script_tag_regex =
+            Regex::new(r#"<script\s+type="module"\s+crossorigin\s+src="([^"]+)""#).unwrap();
         let script_tag = script_tag_regex
             .captures(&html)
             .and_then(|cap| cap.get(1))
             .ok_or_else(|| {
-                ResolverError::MissingRequiredData("Module script tag not found in Apple Music HTML")
+                ResolverError::MissingRequiredData(
+                    "Module script tag not found in Apple Music HTML",
+                )
             })?;
 
         let script_url = format!("https://music.apple.com{}", script_tag.as_str());
@@ -146,9 +147,7 @@ impl AppleMusic {
         let token = token_regex
             .captures(&js_data)
             .and_then(|cap| cap.get(1))
-            .ok_or_else(|| {
-                ResolverError::MissingRequiredData("Access token not found in JS file")
-            })?
+            .ok_or_else(|| ResolverError::MissingRequiredData("Access token not found in JS file"))?
             .as_str()
             .to_string();
 
@@ -240,13 +239,21 @@ impl AppleMusic {
 
         if status.as_u16() == 401 {
             if retry_count >= MAX_RETRIES {
-                tracing::error!("Apple Music API returned 401 after {} retries, giving up", retry_count);
-                return Err(ResolverError::FailedStatusCode(
-                    format!("401 Unauthorized after {} retries", retry_count)
-                ));
+                tracing::error!(
+                    "Apple Music API returned 401 after {} retries, giving up",
+                    retry_count
+                );
+                return Err(ResolverError::FailedStatusCode(format!(
+                    "401 Unauthorized after {} retries",
+                    retry_count
+                )));
             }
 
-            tracing::warn!("Apple Music API returned 401, clearing cache and retrying (attempt {}/{})", retry_count + 1, MAX_RETRIES);
+            tracing::warn!(
+                "Apple Music API returned 401, clearing cache and retrying (attempt {}/{})",
+                retry_count + 1,
+                MAX_RETRIES
+            );
             let mut cache = self.token_cache.lock().await;
             *cache = None;
             drop(cache);
@@ -267,9 +274,10 @@ impl AppleMusic {
         song: &Song,
         artwork_override: Option<String>,
     ) -> Result<ApiTrack, ResolverError> {
-        let attributes = song.attributes.as_ref().ok_or_else(|| {
-            ResolverError::MissingRequiredData("Song attributes missing")
-        })?;
+        let attributes = song
+            .attributes
+            .as_ref()
+            .ok_or_else(|| ResolverError::MissingRequiredData("Song attributes missing"))?;
 
         let artwork = artwork_override.or_else(|| self.parse_artwork(attributes.artwork.as_ref()));
         let is_explicit = attributes.content_rating.as_deref() == Some("explicit");
@@ -283,7 +291,10 @@ impl AppleMusic {
         let info = ApiTrackInfo {
             identifier: song.id.clone(),
             is_seekable: true,
-            author: attributes.artist_name.clone().unwrap_or_else(|| "Unknown".to_string()),
+            author: attributes
+                .artist_name
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string()),
             length: attributes.duration_in_millis.unwrap_or(0),
             is_stream: false,
             position: 0,
@@ -297,7 +308,8 @@ impl AppleMusic {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty, user_data: None
+            plugin_info: Empty,
+            user_data: None,
         })
     }
 
@@ -472,7 +484,9 @@ impl AppleMusic {
             .api_request(&format!("/catalog/{}/artists/{}", self.country, id))
             .await?;
 
-        let artist = artist_response.data.and_then(|data| data.into_iter().next());
+        let artist = artist_response
+            .data
+            .and_then(|data| data.into_iter().next());
 
         let artist_name = artist
             .as_ref()
@@ -527,7 +541,7 @@ impl AppleMusic {
                 "{}{}limit={}&offset={}",
                 base_path, separator, MAX_PAGE_ITEMS, offset
             );
-            
+
             match self.api_request::<ApiResponse<Song>>(&path).await {
                 Ok(response) => {
                     if let Some(data) = response.data {
@@ -648,9 +662,11 @@ impl Source for AppleMusic {
 
     async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError> {
         if crate::SOURCES.get("youtube").is_none() {
-            tracing::warn!("AppleMusic needs YouTube source for playback fallbacks, but it is not available");
+            tracing::warn!(
+                "AppleMusic needs YouTube source for playback fallbacks, but it is not available"
+            );
             return Err(ResolverError::MissingRequiredData(
-                "YouTube source not configured - required for Apple Music playback"
+                "YouTube source not configured - required for Apple Music playback",
             ));
         }
 
@@ -659,13 +675,11 @@ impl Source for AppleMusic {
             .uri
             .as_ref()
             .and_then(|uri| {
-                url::Url::parse(uri)
-                    .ok()
-                    .and_then(|u| {
-                        u.query_pairs()
-                            .find(|(k, _)| k == "explicit")
-                            .map(|(_, v)| v == "true")
-                    })
+                url::Url::parse(uri).ok().and_then(|u| {
+                    u.query_pairs()
+                        .find(|(k, _)| k == "explicit")
+                        .map(|(_, v)| v == "true")
+                })
             })
             .unwrap_or(false);
 
@@ -702,7 +716,10 @@ impl Source for AppleMusic {
                 match youtube.to_inner_ref().resolve(Query::Search(q)).await {
                     Ok(Some(ApiTrackResult::Search(tracks))) => {
                         if let Some(first) = tracks.into_iter().next() {
-                            tracing::debug!("AppleMusic: Found via YouTube Music: {}", first.info.title);
+                            tracing::debug!(
+                                "AppleMusic: Found via YouTube Music: {}",
+                                first.info.title
+                            );
                             return youtube.to_inner_ref().make_playable(first).await;
                         }
                     }
@@ -731,4 +748,3 @@ impl Source for AppleMusic {
         ))
     }
 }
-

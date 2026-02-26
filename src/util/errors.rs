@@ -1,9 +1,9 @@
 use axum::body::Body;
 use axum::http::{self, StatusCode};
 use axum::response::{IntoResponse, Response};
+use kameo::Reply;
 use kameo::error::HookError;
 use kameo::prelude::SendError;
-use kameo::Reply;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -73,7 +73,6 @@ pub enum ResolverError {
     #[error(transparent)]
     AudioStream(#[from] songbird::input::AudioStreamError),
     #[error(transparent)]
-
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
     ToStr(#[from] reqwest::header::ToStrError),
@@ -244,9 +243,7 @@ impl IntoResponse for EndpointError {
             EndpointError::FailedMessage(actor_error) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, actor_error.to_string())
             }
-            EndpointError::InvalidIpAddress(_) => {
-                (StatusCode::BAD_REQUEST, self.to_string())
-            }
+            EndpointError::InvalidIpAddress(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             EndpointError::Unauthorized => (StatusCode::FORBIDDEN, self.to_string()),
         };
 

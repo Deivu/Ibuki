@@ -3,11 +3,11 @@ use super::PRIVATE_API_BASE;
 use super::PUBLIC_API_BASE;
 use super::model::Tokens;
 use super::model::{
-    DeezerApiAlbumDetail, DeezerApiArtistDetail, DeezerApiPlaylist, DeezerApiTrack,
-    DeezerApiTrackList, DeezerData, DeezerGetListDataBody, DeezerGetMedia, DeezerGetUrlBody,
-    DeezerGetUrlMedia, DeezerQualityFormat, DeezerRecommendationBody,
-    DeezerApiErrorWrapper, InternalDeezerGetUserData, InternalDeezerListData, InternalDeezerResponse,
-    InternalDeezerRecommendationData, InternalDeezerSongData,
+    DeezerApiAlbumDetail, DeezerApiArtistDetail, DeezerApiErrorWrapper, DeezerApiPlaylist,
+    DeezerApiTrack, DeezerApiTrackList, DeezerData, DeezerGetListDataBody, DeezerGetMedia,
+    DeezerGetUrlBody, DeezerGetUrlMedia, DeezerQualityFormat, DeezerRecommendationBody,
+    InternalDeezerGetUserData, InternalDeezerListData, InternalDeezerRecommendationData,
+    InternalDeezerResponse, InternalDeezerSongData,
 };
 use super::stream::DeezerHttpStream;
 use crate::CONFIG;
@@ -221,14 +221,20 @@ impl Source for Deezer {
             .await?;
 
         if !list_data.error.is_null() {
-            return Err(ResolverError::Custom(format!("Deezer API error: {:?}", list_data.error)));
+            return Err(ResolverError::Custom(format!(
+                "Deezer API error: {:?}",
+                list_data.error
+            )));
         }
 
-        let track_info = list_data
-            .results
-            .data
-            .first()
-            .ok_or(ResolverError::MissingRequiredData("track data from getListData"))?;
+        let track_info =
+            list_data
+                .results
+                .data
+                .first()
+                .ok_or(ResolverError::MissingRequiredData(
+                    "track data from getListData",
+                ))?;
 
         // Use all quality formats for fallback (like JS source)
         let response = {
@@ -329,10 +335,7 @@ impl Deezer {
             None => return Ok(Some(ApiTrackResult::Empty(None))),
         };
 
-        let url_type = captures
-            .name("type")
-            .map(|m| m.as_str())
-            .unwrap_or("");
+        let url_type = captures.name("type").map(|m| m.as_str()).unwrap_or("");
         let id = captures
             .name("identifier")
             .map(|m| m.as_str())
@@ -350,28 +353,28 @@ impl Deezer {
     }
 
     /// Resolve a short link by following the redirect
-    async fn resolve_short_link(
-        &self,
-        url: &str,
-    ) -> Result<Option<ApiTrackResult>, ResolverError> {
+    async fn resolve_short_link(&self, url: &str) -> Result<Option<ApiTrackResult>, ResolverError> {
         tracing::debug!("Resolving Deezer short link: {}", url);
-        
+
         // Add https:// if not present
         let full_url = if url.starts_with("http://") || url.starts_with("https://") {
             url.to_string()
         } else {
             format!("https://{}", url)
         };
-        
+
         tracing::debug!("Following redirect from: {}", full_url);
         let response = self.client.get(&full_url).send().await?;
         let final_url = response.url().to_string();
-        
+
         tracing::debug!("Redirected to: {}", final_url);
 
         if let Some(captures) = self.url_regex.captures(&final_url) {
             let url_type = captures.name("type").map(|m| m.as_str()).unwrap_or("");
-            let id = captures.name("identifier").map(|m| m.as_str()).unwrap_or("");
+            let id = captures
+                .name("identifier")
+                .map(|m| m.as_str())
+                .unwrap_or("");
 
             tracing::debug!("Matched URL type: {}, id: {}", url_type, id);
 
@@ -386,7 +389,10 @@ impl Deezer {
                 }
             }
         } else {
-            tracing::warn!("Deezer short link redirect didn't match expected pattern. Final URL: {}", final_url);
+            tracing::warn!(
+                "Deezer short link redirect didn't match expected pattern. Final URL: {}",
+                final_url
+            );
             Ok(Some(ApiTrackResult::Empty(None)))
         }
     }
@@ -522,12 +528,7 @@ impl Deezer {
         let tracks = tracklist
             .data
             .iter()
-            .map(|t| {
-                self.build_track_from_api_with_artwork(
-                    t,
-                    &artwork,
-                )
-            })
+            .map(|t| self.build_track_from_api_with_artwork(t, &artwork))
             .collect::<Result<Vec<ApiTrack>, ResolverError>>()?;
 
         Ok(Some(ApiTrackResult::Playlist(ApiTrackPlaylist {
@@ -595,7 +596,10 @@ impl Deezer {
     }
 
     /// Get recommendations using Deezer's smart radio/mix APIs
-    async fn get_recommendations(&self, query: &str) -> Result<Option<ApiTrackResult>, ResolverError> {
+    async fn get_recommendations(
+        &self,
+        query: &str,
+    ) -> Result<Option<ApiTrackResult>, ResolverError> {
         let tokens = self.get_token().await?;
 
         let mut method = "song.getSearchTrackMix";
@@ -699,7 +703,8 @@ impl Deezer {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty, user_data: None
+            plugin_info: Empty,
+            user_data: None,
         })
     }
 
@@ -726,7 +731,8 @@ impl Deezer {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty, user_data: None
+            plugin_info: Empty,
+            user_data: None,
         })
     }
 
@@ -755,7 +761,8 @@ impl Deezer {
         Ok(ApiTrack {
             encoded: encode_track(&info)?,
             info,
-            plugin_info: Empty, user_data: None
+            plugin_info: Empty,
+            user_data: None,
         })
     }
 
@@ -832,12 +839,9 @@ impl Deezer {
 
         tracing::debug!("Deezer API Set-Cookie headers: {:?}", headers);
 
-        let session_id = headers
-            .iter()
-            .find(|str| str.contains("sid="))
-            .ok_or(ResolverError::MissingRequiredData(
-                "Missing Deezer Session Id",
-            ))?;
+        let session_id = headers.iter().find(|str| str.contains("sid=")).ok_or(
+            ResolverError::MissingRequiredData("Missing Deezer Session Id"),
+        )?;
 
         let unique_id = headers
             .iter()
@@ -867,4 +871,3 @@ impl Deezer {
         Ok(tokens)
     }
 }
-

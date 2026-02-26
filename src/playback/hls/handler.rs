@@ -1,17 +1,17 @@
-use songbird::input::{AudioStream, Input, LiveInput};
 use reqwest::Client;
-use std::time::Duration;
+use songbird::input::{AudioStream, Input, LiveInput};
 use std::collections::HashSet;
+use std::time::Duration;
 use symphonia::core::io::MediaSource;
 use symphonia::core::probe::Hint;
 
 use super::playlist::{Playlist, PlaylistParser};
 use super::segment::SegmentFetcher;
 use crate::util::errors::ResolverError;
-use crate::util::http::{http1_make_request, HttpOptions};
-use std::io::{self, Read, Seek, SeekFrom};
+use crate::util::http::{HttpOptions, http1_make_request};
 use bytes::Bytes;
 use flume::{Receiver, Sender};
+use std::io::{self, Read, Seek, SeekFrom};
 
 pub struct HlsHandler {
     // Placeholder
@@ -43,17 +43,17 @@ impl Read for HlsStreamReader {
                     return Ok(read);
                 }
             }
-            
+
             // Current chunk exhausted, get next
             match self.rx.recv() {
                 Ok(Ok(bytes)) => {
                     tracing::debug!("HlsStreamReader: Received chunk of {} bytes", bytes.len());
                     self.current_chunk = Some(std::io::Cursor::new(bytes));
-                },
+                }
                 Ok(Err(e)) => {
                     tracing::error!("HlsStreamReader: Error receiving chunk: {:?}", e);
                     return Err(e);
-                },
+                }
                 Err(_) => {
                     tracing::debug!("HlsStreamReader: Reached EOF (channel closed)");
                     return Ok(0); // EOF
@@ -65,7 +65,10 @@ impl Read for HlsStreamReader {
 
 impl Seek for HlsStreamReader {
     fn seek(&mut self, _pos: SeekFrom) -> io::Result<u64> {
-        Err(io::Error::new(io::ErrorKind::Other, "Seeking not supported in HLS stream"))
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Seeking not supported in HLS stream",
+        ))
     }
 }
 
@@ -73,7 +76,7 @@ impl MediaSource for HlsStreamReader {
     fn is_seekable(&self) -> bool {
         false
     }
-    
+
     fn byte_len(&self) -> Option<u64> {
         None
     }
@@ -106,36 +109,40 @@ pub async fn start_hls_stream(url: String, client: Client) -> Input {
 async fn detect_codec_from_url(url: &str, client: &Client) -> Option<String> {
     let options = HttpOptions::default();
     let res = http1_make_request(url, client, options).await.ok()?;
-    
+
     if !res.status.is_success() {
         return None;
     }
-    
+
     let content = res.text?;
     let playlist = PlaylistParser::parse(&content, url)?;
-    
+
     // If it's a master playlist, select the best variant and get its codec
     if playlist.is_master {
         let variant = playlist.variants.iter().find(|v| {
             if let Some(ref codecs) = v.codecs {
                 let codecs_lower = codecs.to_lowercase();
-                (codecs_lower.contains("mp4a") || codecs_lower.contains("opus")) 
+                (codecs_lower.contains("mp4a") || codecs_lower.contains("opus"))
                     && !codecs_lower.contains("avc1")
             } else {
                 false
             }
         })?;
-        
+
         tracing::debug!("Detected codec from master playlist: {:?}", variant.codecs);
         return variant.codecs.clone();
     }
-    
+
     None
 }
 
-pub async fn start_hls_stream_with_codec(url: String, client: Client, codec: Option<String>) -> Input {
+pub async fn start_hls_stream_with_codec(
+    url: String,
+    client: Client,
+    codec: Option<String>,
+) -> Input {
     let (tx, rx) = flume::bounded(10); // Buffer 10 chunks
-    
+
     let client_clone = client.clone();
     tokio::spawn(async move {
         // HLS Loop
@@ -143,20 +150,20 @@ pub async fn start_hls_stream_with_codec(url: String, client: Client, codec: Opt
             tracing::error!("HLS Loop Error: {:?}", e);
         }
     });
-    
+
     let reader = HlsStreamReader::new(rx);
-    
+
     // Create AudioStream from our MediaSource
     let mut hint = Hint::new();
     let format_ext = get_format_hint_from_codec(codec.as_deref());
     tracing::debug!("Using format hint '{}' for codec: {:?}", format_ext, codec);
     hint.with_extension(format_ext);
-    
+
     let audio_stream = AudioStream {
         input: Box::new(reader) as Box<dyn MediaSource>,
         hint: Some(hint),
     };
-    
+
     // Return as LiveInput::Raw
     Input::Live(LiveInput::Raw(audio_stream), None)
 }
@@ -172,7 +179,7 @@ fn select_best_variant(playlist: &Playlist) -> Option<String> {
     let audio_variant = playlist.variants.iter().find(|v| {
         if let Some(ref codecs) = v.codecs {
             let codecs_lower = codecs.to_lowercase();
-            (codecs_lower.contains("mp4a") || codecs_lower.contains("opus")) 
+            (codecs_lower.contains("mp4a") || codecs_lower.contains("opus"))
                 && !codecs_lower.contains("avc1") // Exclude video codecs
         } else {
             false
@@ -180,7 +187,11 @@ fn select_best_variant(playlist: &Playlist) -> Option<String> {
     });
 
     if let Some(variant) = audio_variant {
-        tracing::debug!("Selected audio-only variant: bandwidth={}, codecs={:?}", variant.bandwidth, variant.codecs);
+        tracing::debug!(
+            "Selected audio-only variant: bandwidth={}, codecs={:?}",
+            variant.bandwidth,
+            variant.codecs
+        );
         return Some(variant.url.clone());
     }
 
@@ -195,18 +206,25 @@ fn select_best_variant(playlist: &Playlist) -> Option<String> {
     });
 
     if let Some(variant) = fallback_variant {
-        tracing::debug!("Selected fallback variant: bandwidth={}, codecs={:?}", variant.bandwidth, variant.codecs);
+        tracing::debug!(
+            "Selected fallback variant: bandwidth={}, codecs={:?}",
+            variant.bandwidth,
+            variant.codecs
+        );
         return Some(variant.url.clone());
     }
 
     // Last resort: highest bandwidth variant
-    tracing::debug!("Selecting highest bandwidth variant: {}", playlist.variants[0].bandwidth);
+    tracing::debug!(
+        "Selecting highest bandwidth variant: {}",
+        playlist.variants[0].bandwidth
+    );
     Some(playlist.variants[0].url.clone())
 }
 
 async fn run_hls_loop(
-    url: String, 
-    client: Client, 
+    url: String,
+    client: Client,
     tx: Sender<Result<Bytes, std::io::Error>>,
     start_time: Option<f64>,
     _is_live: bool,
@@ -214,7 +232,7 @@ async fn run_hls_loop(
     let master_url = url.clone();
     let mut current_url = url;
     let fetcher = SegmentFetcher::new(client.clone());
-    
+
     let mut processed_segments: HashSet<u64> = HashSet::new();
     let mut highest_sequence: i64 = -1;
     let mut last_media_sequence: i64 = -1;
@@ -222,7 +240,7 @@ async fn run_hls_loop(
     const MASTER_REFRESH_INTERVAL: u32 = 3;
     const MAX_RETRIES: u32 = 3;
     let mut init_segment_sent = false;
-    
+
     loop {
         // Fetch playlist with retry
         let mut playlist_attempt = 0;
@@ -235,23 +253,34 @@ async fn run_hls_loop(
                         break content;
                     } else {
                         if playlist_attempt >= MAX_RETRIES {
-                            return Err(ResolverError::Custom("Empty playlist content".to_string()));
+                            return Err(ResolverError::Custom(
+                                "Empty playlist content".to_string(),
+                            ));
                         }
                     }
-                },
+                }
                 Ok(res) if res.status.as_u16() == 403 || res.status.as_u16() == 410 => {
-                    tracing::warn!("Playlist fetch returned {}, falling back to master", res.status);
+                    tracing::warn!(
+                        "Playlist fetch returned {}, falling back to master",
+                        res.status
+                    );
                     if current_url != master_url {
                         current_url = master_url.clone();
                         continue;
                     }
-                    return Err(ResolverError::Custom(format!("Playlist unavailable: {}", res.status)));
-                },
+                    return Err(ResolverError::Custom(format!(
+                        "Playlist unavailable: {}",
+                        res.status
+                    )));
+                }
                 Ok(res) => {
                     if playlist_attempt >= MAX_RETRIES {
-                        return Err(ResolverError::Custom(format!("Playlist fetch failed: {}", res.status)));
+                        return Err(ResolverError::Custom(format!(
+                            "Playlist fetch failed: {}",
+                            res.status
+                        )));
                     }
-                },
+                }
                 Err(e) => {
                     if playlist_attempt >= MAX_RETRIES {
                         return Err(e);
@@ -260,42 +289,46 @@ async fn run_hls_loop(
             }
             tokio::time::sleep(Duration::from_secs(2u64.pow(playlist_attempt - 1))).await;
         };
-        
+
         let playlist = PlaylistParser::parse(&playlist_content, &current_url)
             .ok_or_else(|| ResolverError::Custom("Failed to parse playlist".to_string()))?;
-        
+
         // Handle master playlist
         if playlist.is_master {
-            let selected_url = select_best_variant(&playlist)
-                .ok_or_else(|| ResolverError::Custom("No variants in master playlist".to_string()))?;
-            
+            let selected_url = select_best_variant(&playlist).ok_or_else(|| {
+                ResolverError::Custom("No variants in master playlist".to_string())
+            })?;
+
             tracing::info!("Selected HLS variant from master playlist");
             current_url = selected_url;
             continue;
         }
-        
+
         let target_duration = playlist.target_duration;
         let is_vod = !playlist.is_live;
-        
+
         tracing::debug!(
             "Processing playlist: live={}, segments={}, target_duration={:.1}s",
-            playlist.is_live, playlist.segments.len(), target_duration
+            playlist.is_live,
+            playlist.segments.len(),
+            target_duration
         );
-        
+
         // Check for discontinuity or sequence jump
         if last_media_sequence != -1 {
             let seq_diff = playlist.media_sequence as i64 - last_media_sequence;
             if seq_diff < 0 || seq_diff > 30 {
                 tracing::warn!(
                     "Playlist sequence discontinuity: {} -> {}. Resetting.",
-                    last_media_sequence, playlist.media_sequence
+                    last_media_sequence,
+                    playlist.media_sequence
                 );
                 processed_segments.clear();
                 highest_sequence = -1;
             }
         }
         last_media_sequence = playlist.media_sequence as i64;
-        
+
         // Handle start time for VOD
         if let Some(start_secs) = start_time {
             if !processed_segments.is_empty() || is_vod {
@@ -311,22 +344,32 @@ async fn run_hls_loop(
                         break;
                     }
                 }
-                tracing::debug!("Skipped segments for start_time={:.1}s, elapsed={:.1}s", start_secs, elapsed);
+                tracing::debug!(
+                    "Skipped segments for start_time={:.1}s, elapsed={:.1}s",
+                    start_secs,
+                    elapsed
+                );
             }
         }
-        
+
         // Fetch new segments
         let mut fetched_any = false;
         for segment in &playlist.segments {
             let seq = segment.sequence as i64;
-            
+
             // For fMP4 streams, fetch and send the initialization segment first
             if !init_segment_sent {
                 if let Some(ref map) = segment.map {
                     tracing::info!("Fetching fMP4 initialization segment: {}", map.uri);
-                    match fetcher.fetch_map(map, segment.key.as_ref(), Some(segment.sequence as u64)).await {
+                    match fetcher
+                        .fetch_map(map, segment.key.as_ref(), Some(segment.sequence as u64))
+                        .await
+                    {
                         Ok(init_data) => {
-                            tracing::info!("fMP4 initialization segment fetched: {} bytes", init_data.len());
+                            tracing::info!(
+                                "fMP4 initialization segment fetched: {} bytes",
+                                init_data.len()
+                            );
                             if tx.send_async(Ok(init_data)).await.is_err() {
                                 tracing::debug!("HLS: Receiver dropped while sending init segment");
                                 return Ok(());
@@ -343,12 +386,12 @@ async fn run_hls_loop(
                     init_segment_sent = true;
                 }
             }
-            
+
             // Skip already processed or old segments
             if seq <= highest_sequence || processed_segments.contains(&segment.sequence) {
                 continue;
             }
-            
+
             // Handle discontinuity
             if segment.discontinuity && playlist.is_live {
                 tracing::warn!("Discontinuity detected, resetting state");
@@ -356,7 +399,7 @@ async fn run_hls_loop(
                 highest_sequence = -1;
                 break;
             }
-            
+
             // Fetch segment with retry
             let mut retry_count = 0;
             let segment_data = loop {
@@ -365,36 +408,44 @@ async fn run_hls_loop(
                     Ok(data) => break Some(data),
                     Err(e) => {
                         if retry_count >= MAX_RETRIES {
-                            tracing::error!("Segment fetch failed after {} retries: {:?}", MAX_RETRIES, e);
+                            tracing::error!(
+                                "Segment fetch failed after {} retries: {:?}",
+                                MAX_RETRIES,
+                                e
+                            );
                             break None;
                         }
-                        tracing::warn!("Segment fetch attempt {}/{} failed, retrying...", retry_count, MAX_RETRIES);
+                        tracing::warn!(
+                            "Segment fetch attempt {}/{} failed, retrying...",
+                            retry_count,
+                            MAX_RETRIES
+                        );
                         tokio::time::sleep(Duration::from_millis(500 * retry_count as u64)).await;
                     }
                 }
             };
-            
+
             if let Some(data) = segment_data {
                 processed_segments.insert(segment.sequence);
                 if seq > highest_sequence {
                     highest_sequence = seq;
                 }
-                
+
                 if tx.send_async(Ok(data)).await.is_err() {
                     tracing::debug!("HLS: Receiver dropped, stopping loop");
                     return Ok(());
                 }
-                
+
                 fetched_any = true;
             }
         }
-        
+
         // VOD: stop when all segments are fetched
         if is_vod && !fetched_any {
             tracing::info!("HLS VOD: All segments fetched");
             break;
         }
-        
+
         // Live: periodic refresh
         if playlist.is_live {
             master_refresh_counter += 1;
@@ -402,13 +453,13 @@ async fn run_hls_loop(
                 master_refresh_counter = 0;
                 current_url = master_url.clone();
             }
-            
+
             let delay = Duration::from_secs_f64((target_duration / 2.0).max(0.5));
             tokio::time::sleep(delay).await;
         } else {
             break;
         }
     }
-    
+
     Ok(())
 }

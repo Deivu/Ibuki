@@ -1,8 +1,8 @@
+use crate::util::errors::ResolverError;
+use bytes::Bytes;
 use reqwest::{Client, Method, StatusCode};
 use serde_json::Value;
 use std::time::Duration;
-use bytes::Bytes;
-use crate::util::errors::ResolverError;
 
 pub struct HttpOptions {
     pub method: Method,
@@ -32,7 +32,11 @@ pub struct HttpResponse {
     pub json: Option<Value>,
 }
 
-pub async fn http1_make_request(url: &str, client: &Client, options: HttpOptions) -> Result<HttpResponse, ResolverError> {
+pub async fn http1_make_request(
+    url: &str,
+    client: &Client,
+    options: HttpOptions,
+) -> Result<HttpResponse, ResolverError> {
     let mut req = client.request(options.method, url);
     req = req.headers(options.headers);
     if let Some(body) = options.body {
@@ -41,11 +45,11 @@ pub async fn http1_make_request(url: &str, client: &Client, options: HttpOptions
     if let Some(timeout) = options.timeout {
         req = req.timeout(timeout);
     }
-    
+
     let res = req.send().await.map_err(ResolverError::Reqwest)?;
     let status = res.status();
     let headers = res.headers().clone();
-    
+
     if options.stream_only {
         let body = res.bytes().await.map_err(ResolverError::Reqwest)?;
         return Ok(HttpResponse {
@@ -56,11 +60,11 @@ pub async fn http1_make_request(url: &str, client: &Client, options: HttpOptions
             json: None,
         });
     }
-    
+
     let body_bytes = res.bytes().await.map_err(ResolverError::Reqwest)?;
     let text = String::from_utf8_lossy(&body_bytes).to_string();
     let json: Option<Value> = serde_json::from_str(&text).ok();
-    
+
     Ok(HttpResponse {
         status,
         headers,
@@ -73,10 +77,10 @@ pub async fn http1_make_request(url: &str, client: &Client, options: HttpOptions
 pub fn is_bind_error(e: &reqwest::Error) -> bool {
     let err_msg = e.to_string();
     let err_debug = format!("{:?}", e);
-    
-    err_msg.contains("tcp bind local error") || 
-    err_msg.contains("10049") || 
-    err_msg.contains("AddrNotAvailable") ||
-    err_debug.contains("10049") ||
-    err_debug.contains("AddrNotAvailable")
+
+    err_msg.contains("tcp bind local error")
+        || err_msg.contains("10049")
+        || err_msg.contains("AddrNotAvailable")
+        || err_debug.contains("10049")
+        || err_debug.contains("AddrNotAvailable")
 }

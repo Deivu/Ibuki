@@ -12,7 +12,9 @@ use crate::util::converter::numbers::FromU64;
 use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::EndpointError;
 use crate::voice::manager::CreatePlayerOptions;
-use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetFilters, SetVolume, Stop};
+use crate::voice::player::{
+    GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetFilters, SetVolume, Stop,
+};
 use crate::ws::client::{
     CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
 };
@@ -111,14 +113,23 @@ pub async fn update_player(
 
     let is_active = player.ask(IsActive).await?;
 
-    if let Some(encoded) = update_player.track.as_ref().map(|track| track.encoded.clone()) {
+    if let Some(encoded) = update_player
+        .track
+        .as_ref()
+        .map(|track| track.encoded.clone())
+    {
         if !is_active || !query.no_replace.unwrap_or(false) {
             match encoded {
                 Value::String(encoded) => {
-                    player.ask(Play { 
-                        encoded, 
-                        user_data: update_player.track.as_ref().and_then(|t| t.user_data.clone()),
-                    }).await?;
+                    player
+                        .ask(Play {
+                            encoded,
+                            user_data: update_player
+                                .track
+                                .as_ref()
+                                .and_then(|t| t.user_data.clone()),
+                        })
+                        .await?;
                 }
                 _ => {
                     player.ask(Stop).await?;
@@ -204,10 +215,14 @@ pub async fn update_session(
 }
 
 pub async fn decode(query: Query<DecodeQueryString>) -> Result<Response<Body>, EndpointError> {
-    let track = decode_track(&query.track)
-        .or_else(|_| decode_base64(&query.track))?;
+    let track = decode_track(&query.track).or_else(|_| decode_base64(&query.track))?;
 
-    let track = ApiTrack { encoded: query.track.clone(), info: track, plugin_info: Empty, user_data: None, };
+    let track = ApiTrack {
+        encoded: query.track.clone(),
+        info: track,
+        plugin_info: Empty,
+        user_data: None,
+    };
 
     let string = serde_json::to_string_pretty(&track)?;
 
@@ -222,17 +237,20 @@ pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, E
         let Some(data) = source.to_inner_ref().parse_query(&query.identifier) else {
             continue;
         };
-        
+
         tracing::info!("Trying source: {}", source.to_inner_ref().get_name());
-        
+
         track = source
             .to_inner_ref()
             .resolve(data)
             .await?
             .unwrap_or(ApiTrackResult::Empty(None));
-        
+
         if !matches!(track, ApiTrackResult::Empty(_)) {
-            tracing::info!("Track found by source: {}", source.to_inner_ref().get_name());
+            tracing::info!(
+                "Track found by source: {}",
+                source.to_inner_ref().get_name()
+            );
             break;
         }
     }
@@ -351,7 +369,11 @@ pub async fn get_all_players(
     for (_guild_id, player_ref) in players {
         match player_ref.ask(GetApiPlayerInfo).await {
             Ok(data) => player_list.push(data),
-            Err(e) => tracing::error!("Failed to GetApiPlayerInfo for guild {}: {:?}", _guild_id, e),
+            Err(e) => tracing::error!(
+                "Failed to GetApiPlayerInfo for guild {}: {:?}",
+                _guild_id,
+                e
+            ),
         }
     }
 
