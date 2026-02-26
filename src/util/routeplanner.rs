@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use std::collections::HashSet;
 use dashmap::DashMap;
+
+use crate::util::config;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -34,7 +36,7 @@ impl FromStr for Strategy {
 #[serde(rename_all = "camelCase")]
 pub struct IpBlockStatus {
     pub ip_block: String,
-    pub size: usize,
+    pub size: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,17 +79,16 @@ struct BannedIp {
 pub struct RoutePlanner {
     strategy: Strategy,
     ip_blocks: Vec<IpBlock>,
+    excluded_ips: HashSet<IpAddr>,
     banned_ips: Arc<DashMap<String, BannedIp>>,
     banned_ip_cooldown: Duration,
     current_index: AtomicUsize,
     rotate_index: AtomicUsize,
-    nano_index: AtomicUsize,
 }
 
 struct IpBlock {
     base_ip: IpAddr,
     mask: u8,
-    ips: Vec<IpAddr>,
 }
 
 impl IpBlock {
@@ -103,63 +104,68 @@ impl IpBlock {
             .parse()
             .map_err(|e| format!("Invalid mask: {}", e))?;
 
-        let ips = Self::generate_ips(&base_ip, mask)?;
+        match base_ip {
+            IpAddr::V4(_) if mask > 32 => return Err(format!("Invalid IPv4 mask: {}", mask)),
+            IpAddr::V6(_) if mask > 128 => return Err(format!("Invalid IPv6 mask: {}", mask)),
+            _ => {}
+        }
 
-        Ok(IpBlock {
-            base_ip,
-            mask,
-            ips,
-        })
+        Ok(IpBlock { base_ip, mask })
     }
 
-    fn generate_ips(base_ip: &IpAddr, mask: u8) -> Result<Vec<IpAddr>, String> {
-        match base_ip {
-            IpAddr::V4(ipv4) => {
-                let base = u32::from(*ipv4);
-                let host_bits = 32u8.checked_sub(mask)
-                    .ok_or_else(|| format!("Invalid mask: {} (must be <= 32)", mask))?;
-                
-                let num_ips = 1u64 << host_bits;
-                if num_ips > 65536 {
-                    return Err(format!("IP block too large: {} IPs (max 65536)", num_ips));
-                }
+    fn get_ip(&self, index: u128) -> Option<IpAddr> {
+        let size = self.size();
+        if size == 0 { return None; }
+        let idx = index % size;
 
-                let num_ips_usize = num_ips as usize;
-                
-                if num_ips_usize > 0 {
-                    base.checked_add((num_ips_usize - 1) as u32)
-                        .ok_or_else(|| format!("IP range starting at {} with size {} overflows 32-bit address space", ipv4, num_ips_usize))?;
-                }
-
-                let mut ips = Vec::with_capacity(num_ips_usize);
-                for i in 0..num_ips_usize {
-                    let ip_u32 = base + i as u32;
-                    ips.push(IpAddr::V4(std::net::Ipv4Addr::from(ip_u32)));
-                }
-                Ok(ips)
+        match self.base_ip {
+            IpAddr::V4(v4) => {
+                let base = u32::from(v4);
+                let ip_u32 = base.checked_add(idx as u32)?;
+                Some(IpAddr::V4(Ipv4Addr::from(ip_u32)))
             }
-            IpAddr::V6(_) => {
-                Err("IPv6 CIDR blocks are not yet supported; only IPv4 is enumerated".to_string())
+            IpAddr::V6(v6) => {
+                let base = u128::from(v6);
+                let ip_u128 = base.checked_add(idx)?;
+                Some(IpAddr::V6(Ipv6Addr::from(ip_u128)))
             }
         }
     }
 
-    fn get_ip(&self, index: usize) -> Option<&IpAddr> {
-        if self.ips.is_empty() { return None; }
-        self.ips.get(index % self.ips.len())
-    }
-
-    fn size(&self) -> usize {
-        self.ips.len()
+    fn size(&self) -> u128 {
+        match self.base_ip {
+            IpAddr::V4(_) => 1u128 << (32u8.saturating_sub(self.mask)),
+            IpAddr::V6(_) => {
+                let host_bits = 128u8.saturating_sub(self.mask);
+                if host_bits >= 128 {
+                    u128::MAX
+                } else {
+                    1u128 << host_bits
+                }
+            }
+        }
     }
 
     fn to_cidr(&self) -> String {
         format!("{}/{}", self.base_ip, self.mask)
     }
+
+    fn sub_block_count(&self) -> u128 {
+        match self.base_ip {
+            IpAddr::V4(_) => 1,
+            IpAddr::V6(_) => {
+                if self.mask >= 64 {
+                    1
+                } else {
+                    1u128 << (64 - self.mask)
+                }
+            }
+        }
+    }
 }
 
 impl RoutePlanner {
-    pub fn new(config: &crate::util::config::RoutePlannerConfig) -> Result<Self, String> {
+    pub fn new(config: &config::RoutePlannerConfig) -> Result<Self, String> {
         let strategy = Strategy::from_str(&config.strategy)?;
         
         let mut ip_blocks = Vec::new();
@@ -173,16 +179,30 @@ impl RoutePlanner {
             return Err("No IP blocks configured for route planner".to_string());
         }
 
+        let mut excluded_ips = HashSet::new();
+        if let Some(excluded) = &config.excluded_ips {
+            for ip_str in excluded {
+                match IpAddr::from_str(ip_str) {
+                    Ok(ip) => {
+                        excluded_ips.insert(ip);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse excluded IP '{}': {}", ip_str, e);
+                    }
+                }
+            }
+        }
+
         let banned_ip_cooldown = Duration::from_millis(config.banned_ip_cooldown);
 
         Ok(RoutePlanner {
             strategy,
             ip_blocks,
+            excluded_ips,
             banned_ips: Arc::new(DashMap::new()),
             banned_ip_cooldown,
             current_index: AtomicUsize::new(0),
             rotate_index: AtomicUsize::new(0),
-            nano_index: AtomicUsize::new(0),
         })
     }
 
@@ -197,16 +217,17 @@ impl RoutePlanner {
         }
     }
 
-    fn total_slots(&self) -> usize {
+    fn total_slots(&self) -> u128 {
         self.ip_blocks.iter().map(|b| b.size()).sum()
     }
 
-    fn get_ip_from_global_index(&self, mut global_index: usize) -> Option<IpAddr> {
+    fn get_ip_from_global_index(&self, mut global_index: u128) -> Option<IpAddr> {
         for block in &self.ip_blocks {
-            if global_index < block.size() {
+            let size = block.size();
+            if global_index < size {
                 return block.get_ip(global_index);
             }
-            global_index -= block.size();
+            global_index -= size;
         }
         None
     }
@@ -214,18 +235,20 @@ impl RoutePlanner {
     fn rotate_on_ban(&self) -> Option<IpAddr> {
         let total = self.total_slots();
         if total == 0 { return None; }
-        let index = self.current_index.load(Ordering::Relaxed) % total;
+        let index = (self.current_index.load(Ordering::Relaxed) as u128) % total;
         
         if let Some(ip) = self.get_ip_from_global_index(index) {
-            if !self.is_banned(&ip) {
+            if !self.is_banned(&ip) && !self.excluded_ips.contains(&ip) {
                 return Some(ip);
             }
         }
-        for offset in 1..total {
+
+        let search_limit = std::cmp::min(total, 65536);
+        for offset in 1..search_limit {
             let next_index = (index + offset) % total;
             if let Some(ip) = self.get_ip_from_global_index(next_index) {
-                if !self.is_banned(&ip) {
-                    self.current_index.store(next_index, Ordering::Relaxed);
+                if !self.is_banned(&ip) && !self.excluded_ips.contains(&ip) {
+                    self.current_index.store(next_index as usize, Ordering::Relaxed);
                     return Some(ip);
                 }
             }
@@ -237,11 +260,13 @@ impl RoutePlanner {
     fn load_balance(&self) -> Option<IpAddr> {
         let total = self.total_slots();
         if total == 0 { return None; }
-        let index = self.current_index.fetch_add(1, Ordering::Relaxed) % total;
-        for offset in 0..total {
+        let index = (self.current_index.fetch_add(1, Ordering::Relaxed) as u128) % total;
+        
+        let search_limit = std::cmp::min(total, 65536);
+        for offset in 0..search_limit {
             let try_index = (index + offset) % total;
             if let Some(ip) = self.get_ip_from_global_index(try_index) {
-                if !self.is_banned(&ip) {
+                if !self.is_banned(&ip) && !self.excluded_ips.contains(&ip) {
                     return Some(ip);
                 }
             }
@@ -253,12 +278,19 @@ impl RoutePlanner {
     fn nano_switch(&self) -> Option<IpAddr> {
         let total = self.total_slots();
         if total == 0 { return None; }
-        let index = self.nano_index.fetch_add(1, Ordering::Relaxed) % total;
+        
+        let nano = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        
+        let index = nano % total;
 
-        for offset in 0..total {
+        let search_limit = std::cmp::min(total, 1024);
+        for offset in 0..search_limit {
             let try_index = (index + offset) % total;
             if let Some(ip) = self.get_ip_from_global_index(try_index) {
-                if !self.is_banned(&ip) {
+                if !self.is_banned(&ip) && !self.excluded_ips.contains(&ip) {
                     return Some(ip);
                 }
             }
@@ -271,18 +303,20 @@ impl RoutePlanner {
         let total = self.total_slots();
         if total == 0 { return None; }
         
-        let nano_idx = self.nano_index.fetch_add(1, Ordering::Relaxed);
-        if nano_idx > 0 && nano_idx % total == 0 {
-            self.rotate_index.fetch_add(1, Ordering::Relaxed);
-        }
+        let nano = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        
+        let rotate_idx = self.rotate_index.load(Ordering::Relaxed) as u128;
+        let sub_block_shift = rotate_idx.wrapping_mul(1u128 << 64);
+        let combined_index = (sub_block_shift.wrapping_add(nano)) % total;
 
-        let rotate_idx = self.rotate_index.load(Ordering::Relaxed);
-        let combined_index = (rotate_idx + nano_idx) % total;
-
-        for offset in 0..total {
+        let search_limit = std::cmp::min(total, 1024);
+        for offset in 0..search_limit {
             let try_index = (combined_index + offset) % total;
             if let Some(ip) = self.get_ip_from_global_index(try_index) {
-                if !self.is_banned(&ip) {
+                if !self.is_banned(&ip) && !self.excluded_ips.contains(&ip) {
                     return Some(ip);
                 }
             }
@@ -302,7 +336,15 @@ impl RoutePlanner {
             },
         );
 
-        crate::api::metrics::record_route_planner_ban();
+        match self.strategy {
+            Strategy::RotateOnBan => {
+                self.current_index.fetch_add(1, Ordering::Relaxed);
+            }
+            Strategy::RotatingNanoSwitch => {
+                self.rotate_index.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
     }
 
     fn is_banned(&self, ip: &IpAddr) -> bool {
@@ -354,16 +396,16 @@ impl RoutePlanner {
 
         let ip_block_status = self.ip_blocks.first().map(|block| IpBlockStatus {
             ip_block: block.to_cidr(),
-            size: block.size(),
-        }).unwrap_or(IpBlockStatus {
+            size: block.size().to_string(),
+        }).unwrap_or_else(|| IpBlockStatus {
             ip_block: "0.0.0.0/32".to_string(),
-            size: 0,
+            size: "0".to_string(),
         });
 
         let current_index = self.current_index.load(Ordering::Relaxed);
         let rotate_index = self.rotate_index.load(Ordering::Relaxed);
         let current_ip = self.ip_blocks.first()
-            .and_then(|b| b.get_ip(current_index))
+            .and_then(|b| b.get_ip(current_index as u128))
             .map(|ip| ip.to_string());
 
         RoutePlannerStatus {
@@ -373,16 +415,17 @@ impl RoutePlanner {
                 failing_addresses,
                 rotate_index: Some(rotate_index.to_string()),
                 ip_index: Some(current_index.to_string()),
-                current_address: current_ip.clone(),
+                current_address: current_ip,
                 current_address_index: Some(current_index.to_string()),
                 block_index: Some("0".to_string()),
             },
         }
     }
 
-    pub fn available_ips(&self) -> usize {
-        let total: usize = self.ip_blocks.iter().map(|b| b.size()).sum();
-        let banned = self.banned_ips.len();
-        total.saturating_sub(banned)
+    pub fn available_ips(&self) -> u128 {
+        let total = self.total_slots();
+        let banned = self.banned_ips.len() as u128;
+        let excluded = self.excluded_ips.len() as u128;
+        total.saturating_sub(banned).saturating_sub(excluded)
     }
 }

@@ -1,10 +1,11 @@
 use std::time::Duration;
-use reqwest::{Client, Url};
+use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
 use tracing::error;
 
 use super::clients::{InnertubeClient, InnertubeContext};
 use crate::util::errors::ResolverError;
+use crate::util::http::is_bind_error;
 
 pub const YOUTUBE_API_URL: &str = "https://www.youtube.com/youtubei/v1";
 
@@ -31,30 +32,61 @@ impl InnertubeApi {
         extra_headers: &[(String, String)],
     ) -> Result<Value, ResolverError> {
 
-        let mut url = Url::parse(&format!("{}{}", YOUTUBE_API_URL, endpoint))
-            .map_err(|_| ResolverError::Custom("Invalid API URL".to_string()))?;
-        let mut req_builder = self.http.post(url);
-
+        let (http_client, bound_ip) = crate::get_client();
+        let mut req_builder = http_client.post(format!("{}{}", YOUTUBE_API_URL, endpoint));
         for (k, v) in extra_headers {
             req_builder = req_builder.header(k, v);
         }
+
         let mut final_payload = payload;
         if let Some(obj) = final_payload.as_object_mut() {
-             obj.insert("context".to_string(), json!(context));
-             if let Some(extra) = client.extra_payload() {
-                 if let Some(extra_map) = extra.as_object() {
-                     for (key, val) in extra_map {
-                         obj.insert(key.clone(), val.clone());
-                     }
-                 }
-             }
+            obj.insert("context".to_string(), json!(context));
+            if let Some(Value::Object(extra_map)) = client.extra_payload() {
+                for (key, val) in extra_map {
+                    obj.insert(key, val);
+                }
+            }
         }
 
         let res = req_builder
             .json(&final_payload)
             .send()
-            .await
-            .map_err(ResolverError::Reqwest)?;
+            .await;
+
+        let (res, fallback_used) = match res {
+            Ok(r) => (r, false),
+            Err(e) => {
+                if !is_bind_error(&e) {
+                    return Err(ResolverError::Reqwest(e));
+                }
+
+                tracing::error!("RoutePlanner: System failed to bind to local IP {:?}. Check your 'ipBlocks' in config.json. OS Error: {}", bound_ip, e);
+                tracing::warn!("RoutePlanner: Falling back to default system interface for this request.");
+                
+                if let (Some(planner), Some(ip)) = (&*crate::ROUTE_PLANNER, bound_ip) {
+                    planner.ban_ip(ip);
+                }
+                
+                let mut fallback_builder = crate::REQWEST.post(format!("{}{}", YOUTUBE_API_URL, endpoint));
+                for (k, v) in extra_headers {
+                    fallback_builder = fallback_builder.header(k, v);
+                }
+
+                let fallback_res = fallback_builder
+                    .json(&final_payload)
+                    .send()
+                    .await
+                    .map_err(ResolverError::Reqwest)?;
+                
+                (fallback_res, true)
+            }
+        };
+
+        if !fallback_used && res.status() == StatusCode::TOO_MANY_REQUESTS {
+            if let (Some(planner), Some(ip)) = (&*crate::ROUTE_PLANNER, bound_ip) {
+                planner.ban_ip(ip);
+            }
+        }
 
         if !res.status().is_success() {
              let status = res.status();
@@ -136,13 +168,12 @@ impl InnertubeApi {
         }
 
         if let Some(timestamp) = signature_timestamp {
-             if let Some(playback_context) = payload.get_mut("playbackContext") {
-                 if let Some(content_context) = playback_context.get_mut("contentPlaybackContext") {
-                     if let Some(obj) = content_context.as_object_mut() {
-                         obj.insert("signatureTimestamp".to_string(), json!(timestamp));
-                     }
-                 }
-             }
+            if let Some(obj) = payload.get_mut("playbackContext")
+                .and_then(|pc| pc.get_mut("contentPlaybackContext"))
+                .and_then(|cc| cc.as_object_mut()) 
+            {
+                obj.insert("signatureTimestamp".to_string(), json!(timestamp));
+            }
         }
         
         let mut context = client.context();

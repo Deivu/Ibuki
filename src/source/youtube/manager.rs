@@ -42,8 +42,7 @@ impl YouTubeManager {
         let sabr = Arc::new(Mutex::new(Sabr::new(http.clone())));
         let oauth = Arc::new(Mutex::new(YoutubeOAuth::new(http.clone())));
         let youtube_config = CONFIG.youtube_config.as_ref().expect("YouTube config missing");
-        
-        // Helper to populate clients map
+
         let mut register_client = |name: &str| {
             if !clients.contains_key(name) {
                 if let Some(client) = clients::get_client_by_name(name) {
@@ -54,8 +53,6 @@ impl YouTubeManager {
             }
         };
 
-        // Handle Option defaults if needed, but config struct has Options.
-        // Assuming config is populated or we handle None.
         let search_list = youtube_config.clients.as_ref().and_then(|c| c.search.clone()).unwrap_or_default();
         let resolve_list = youtube_config.clients.as_ref().and_then(|c| c.resolve.clone()).unwrap_or_default();
         let playback_list = youtube_config.clients.as_ref().and_then(|c| c.playback.clone()).unwrap_or_default();
@@ -99,7 +96,6 @@ impl YouTubeManager {
         let client_name = self.search_clients.first().cloned().unwrap_or("Android".to_string());
         let client = self.get_innertube_client(&client_name).ok_or(ResolverError::Custom("No search client available".to_string()))?;
 
-        // Extract context data
         let visitor_data = self.sabr.lock().await.get_visitor_data();
         let oauth_token = self.oauth.lock().await.get_access_token();
 
@@ -109,7 +105,6 @@ impl YouTubeManager {
     pub async fn resolve_video(&self, video_id: &str) -> Result<Value, ResolverError> {
         let mut last_error = ResolverError::Custom("No clients configured for resolution".to_string());
         
-        // Extract context data once
         let (visitor_data, po_token) = {
             let sabr = self.sabr.lock().await;
             (sabr.get_visitor_data(), sabr.get_po_token())
@@ -122,15 +117,14 @@ impl YouTubeManager {
 
             match self.api.player(video_id, client.as_ref(), None, None, visitor_data.as_deref(), po_token.as_deref(), oauth_token.as_deref(), None).await {
                 Ok(response) => {
-                     if let Some(status) = response.get("playabilityStatus").and_then(|s| s.get("status")).and_then(|s| s.as_str()) {
-                         if status == "OK" {
-                             return Ok(response);
-                         } else {
-                             debug!("Client {} failed for {}: PlayabilityStatus {}", client.name(), video_id, status);
-                         }
-                     } else {
-                         return Ok(response);
-                     }
+                    let status = response.get("playabilityStatus")
+                        .and_then(|s| s.get("status"))
+                        .and_then(|s| s.as_str());
+
+                    match status {
+                        Some("OK") | None => return Ok(response),
+                        Some(status) => debug!("Client {} failed for {}: PlayabilityStatus {}", client.name(), video_id, status),
+                    }
                 },
                 Err(e) => last_error = e,
             }

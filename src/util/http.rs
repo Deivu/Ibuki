@@ -1,4 +1,4 @@
-use reqwest::{Client, Method, RequestBuilder, StatusCode};
+use reqwest::{Client, Method, StatusCode};
 use serde_json::Value;
 use std::time::Duration;
 use bytes::Bytes;
@@ -68,4 +68,15 @@ pub async fn http1_make_request(url: &str, client: &Client, options: HttpOptions
         text: Some(text),
         json,
     })
+}
+
+pub fn is_bind_error(e: &reqwest::Error) -> bool {
+    let err_msg = e.to_string();
+    let err_debug = format!("{:?}", e);
+    
+    err_msg.contains("tcp bind local error") || 
+    err_msg.contains("10049") || 
+    err_msg.contains("AddrNotAvailable") ||
+    err_debug.contains("10049") ||
+    err_debug.contains("AddrNotAvailable")
 }

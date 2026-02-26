@@ -8,5 +8,6 @@ pub mod headers;
 pub mod mailbox;
 pub mod seek;
 pub mod source;
+pub mod routeplanner;
 pub mod task;
 pub mod url;

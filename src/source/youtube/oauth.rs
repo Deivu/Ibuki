@@ -6,6 +6,7 @@ use serde_json::Value;
 use tracing::{debug, error, info};
 
 use crate::util::errors::ResolverError;
+use crate::util::http::is_bind_error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OauthToken {
@@ -72,11 +73,41 @@ impl YoutubeOAuth {
             ("refresh_token", refresh_token),
         ];
 
-        let res = self.http.post("https://oauth2.googleapis.com/token")
+        let (http_client, bound_ip) = crate::get_client();
+        let res = http_client.post("https://oauth2.googleapis.com/token")
             .form(&params)
             .send()
-            .await
-            .map_err(ResolverError::Reqwest)?;
+            .await;
+
+        let (res, fallback_used) = match res {
+            Ok(r) => (r, false),
+            Err(e) => {
+                if !is_bind_error(&e) {
+                    return Err(ResolverError::Reqwest(e));
+                }
+
+                tracing::error!("RoutePlanner: OAuth: System failed to bind to local IP {:?}. Check your 'ipBlocks'. OS Error: {}", bound_ip, e);
+                tracing::warn!("RoutePlanner: Falling back to default system interface for OAuth request.");
+                
+                if let (Some(planner), Some(ip)) = (&*crate::ROUTE_PLANNER, bound_ip) {
+                    planner.ban_ip(ip);
+                }
+
+                let fallback_res = crate::REQWEST.post("https://oauth2.googleapis.com/token")
+                    .form(&params)
+                    .send()
+                    .await
+                    .map_err(ResolverError::Reqwest)?;
+                
+                (fallback_res, true)
+            }
+        };
+
+        if !fallback_used && res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            if let (Some(planner), Some(ip)) = (&*crate::ROUTE_PLANNER, bound_ip) {
+                planner.ban_ip(ip);
+            }
+        }
 
         if !res.status().is_success() {
              let text = res.text().await.unwrap_or_default();

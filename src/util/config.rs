@@ -211,6 +211,7 @@ pub struct RoutePlannerConfig {
     pub strategy: String,
     pub banned_ip_cooldown: u64,
     pub ip_blocks: Vec<String>,
+    pub excluded_ips: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

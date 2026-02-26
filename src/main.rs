@@ -11,6 +11,7 @@ use crate::source::spotify::source::Spotify;
 use crate::source::songlink::source::Songlink;
 use crate::source::youtube::source::Youtube;
 use crate::util::config::Config;
+use crate::util::routeplanner::RoutePlanner;
 use crate::util::headers::generate_headers;
 use crate::util::source::{FixAsyncTraitSource, Source};
 use crate::util::task::{AddTask, TasksManager};
@@ -58,10 +59,44 @@ static CLIENTS: LazyLock<DashMap<UserId, ActorRef<WebSocketClient>>> = LazyLock:
 static SOURCES: LazyLock<DashMap<String, FixAsyncTraitSource>> = LazyLock::new(DashMap::new);
 static TASKS: LazyLock<TasksManager<String>> = LazyLock::new(TasksManager::default);
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
-static REQWEST: LazyLock<Client> = LazyLock::new(|| {
-    let builder = ClientBuilder::new().default_headers(generate_headers().unwrap());
-    builder.build().expect("Failed to create reqwest client")
+pub static ROUTE_PLANNER: LazyLock<Option<RoutePlanner>> = LazyLock::new(|| {
+    CONFIG.route_planner.as_ref().and_then(|config| {
+        match RoutePlanner::new(config) {
+            Ok(planner) => Some(planner),
+            Err(e) => {
+                tracing::error!("Failed to initialize RoutePlanner: {}", e);
+                None
+            }
+        }
+    })
 });
+static REQWEST: LazyLock<Client> = LazyLock::new(|| {
+    create_reqwest_client(None)
+});
+
+static CLIENT_POOL: LazyLock<DashMap<std::net::IpAddr, Client>> = LazyLock::new(DashMap::new);
+
+fn create_reqwest_client(local_address: Option<std::net::IpAddr>) -> Client {
+    let mut builder = ClientBuilder::new().default_headers(generate_headers().unwrap());
+    if let Some(addr) = local_address {
+        builder = builder.local_address(addr);
+    }
+    builder.build().expect("Failed to create reqwest client")
+}
+
+pub fn get_client() -> (Client, Option<std::net::IpAddr>) {
+    if let Some(planner) = &*ROUTE_PLANNER {
+        if let Some(ip) = planner.get_next_ip() {
+            if let Some(client) = CLIENT_POOL.get(&ip) {
+                return (client.clone(), Some(ip));
+            }
+            let client = create_reqwest_client(Some(ip));
+            CLIENT_POOL.insert(ip, client.clone());
+            return (client, Some(ip));
+        }
+    }
+    (REQWEST.clone(), None)
+}
 pub static SYSTEM: LazyLock<tokio::sync::Mutex<sysinfo::System>> = LazyLock::new(|| {
     tokio::sync::Mutex::new(sysinfo::System::new())
 });
@@ -85,6 +120,7 @@ async fn main() {
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set global logger");
 
     LazyLock::force(&CONFIG);
+    LazyLock::force(&ROUTE_PLANNER);
     LazyLock::force(&CLIENTS);
     LazyLock::force(&SOURCES);
     LazyLock::force(&TASKS);

@@ -10,23 +10,19 @@ pub fn redact_ws_message_for_log(msg: &Message) -> String {
             let mut final_data: String = data.to_string();
 
             if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(data) {
-                if let Some(obj) = json.as_object_mut() {
-                    if let Some(track) = obj.get_mut("track") {
-                        if let Some(track_obj) = track.as_object_mut() {
-                            track_obj.entry("userData".to_string()).and_modify(|v| *v = serde_json::Value::String("[REDACTED]".to_string()));
-                            track_obj.entry("pluginInfo".to_string()).and_modify(|v| *v = serde_json::Value::String("[REDACTED]".to_string()));
-                            if let Some(encoded) = track_obj.get("encoded").and_then(|e| e.as_str()) {
-                                if encoded.len() > 100 {
-                                    let mut c_idx = 100;
-                                    while !encoded.is_char_boundary(c_idx) {
-                                        c_idx -= 1;
-                                    }
-                                    track_obj.insert("encoded".to_string(), serde_json::Value::String(format!("{}...", &encoded[..c_idx])));
-                                }
-                            }
+                if let Some(track_obj) = json.get_mut("track").and_then(|v| v.as_object_mut()) {
+                    track_obj.entry("userData".to_string()).and_modify(|v| *v = serde_json::Value::from("[REDACTED]"));
+                    track_obj.entry("pluginInfo".to_string()).and_modify(|v| *v = serde_json::Value::from("[REDACTED]"));
+
+                    if let Some(encoded) = track_obj.get("encoded").and_then(|e| e.as_str()) {
+                        if encoded.len() > 100 {
+                            let mut c_idx = 100;
+                            while !encoded.is_char_boundary(c_idx) { c_idx -= 1; }
+                            track_obj.insert("encoded".to_string(), serde_json::Value::from(format!("{}...", &encoded[..c_idx])));
                         }
                     }
                 }
+
                 if let Ok(redacted) = serde_json::to_string(&json) {
                     final_data = redacted;
                 }
