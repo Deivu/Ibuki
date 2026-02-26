@@ -44,30 +44,49 @@ fn decode_modified_utf8(bytes: &[u8]) -> Result<String, Base64DecodeError> {
         } else if (c & 0xE0) == 0xC0 {
             // 2-byte character
             if i + 1 >= end {
-                return Err(Base64DecodeError::Custom("Malformed Modified UTF-8: incomplete 2-byte sequence".to_string()));
+                return Err(Base64DecodeError::Custom(
+                    "Malformed Modified UTF-8: incomplete 2-byte sequence".to_string(),
+                ));
             }
             let c2 = bytes[i + 1];
             if (c2 & 0xC0) != 0x80 {
-                return Err(Base64DecodeError::Custom("Malformed Modified UTF-8: invalid continuation byte".to_string()));
+                return Err(Base64DecodeError::Custom(
+                    "Malformed Modified UTF-8: invalid continuation byte".to_string(),
+                ));
             }
             let ch = (((c & 0x1F) as u32) << 6) | ((c2 & 0x3F) as u32);
-            chars.push(char::from_u32(ch).ok_or_else(|| Base64DecodeError::Custom("Invalid character code".to_string()))?);
+            chars.push(
+                char::from_u32(ch).ok_or_else(|| {
+                    Base64DecodeError::Custom("Invalid character code".to_string())
+                })?,
+            );
             i += 2;
         } else if (c & 0xF0) == 0xE0 {
             // 3-byte character
             if i + 2 >= end {
-                return Err(Base64DecodeError::Custom("Malformed Modified UTF-8: incomplete 3-byte sequence".to_string()));
+                return Err(Base64DecodeError::Custom(
+                    "Malformed Modified UTF-8: incomplete 3-byte sequence".to_string(),
+                ));
             }
             let c2 = bytes[i + 1];
             let c3 = bytes[i + 2];
             if (c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80 {
-                return Err(Base64DecodeError::Custom("Malformed Modified UTF-8: invalid continuation byte".to_string()));
+                return Err(Base64DecodeError::Custom(
+                    "Malformed Modified UTF-8: invalid continuation byte".to_string(),
+                ));
             }
-            let ch = (((c & 0x0F) as u32) << 12) | (((c2 & 0x3F) as u32) << 6) | ((c3 & 0x3F) as u32);
-            chars.push(char::from_u32(ch).ok_or_else(|| Base64DecodeError::Custom("Invalid character code".to_string()))?);
+            let ch =
+                (((c & 0x0F) as u32) << 12) | (((c2 & 0x3F) as u32) << 6) | ((c3 & 0x3F) as u32);
+            chars.push(
+                char::from_u32(ch).ok_or_else(|| {
+                    Base64DecodeError::Custom("Invalid character code".to_string())
+                })?,
+            );
             i += 3;
         } else {
-            return Err(Base64DecodeError::Custom("Malformed Modified UTF-8: invalid byte".to_string()));
+            return Err(Base64DecodeError::Custom(
+                "Malformed Modified UTF-8: invalid byte".to_string(),
+            ));
         }
     }
 
@@ -75,15 +94,23 @@ fn decode_modified_utf8(bytes: &[u8]) -> Result<String, Base64DecodeError> {
 }
 
 /// Read a Modified UTF-8 string with 2-byte length prefix.
-fn read_modified_utf8_string(buffer: &[u8], position: &mut usize) -> Result<String, Base64DecodeError> {
+fn read_modified_utf8_string(
+    buffer: &[u8],
+    position: &mut usize,
+) -> Result<String, Base64DecodeError> {
     if *position + 2 > buffer.len() {
-        return Err(Base64DecodeError::Custom("Unexpected end of buffer reading string length".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Unexpected end of buffer reading string length".to_string(),
+        ));
     }
     let len = u16::from_be_bytes([buffer[*position], buffer[*position + 1]]) as usize;
     *position += 2;
 
     if *position + len > buffer.len() {
-        return Err(Base64DecodeError::Custom(format!("Unexpected end of buffer: need {} bytes", len)));
+        return Err(Base64DecodeError::Custom(format!(
+            "Unexpected end of buffer: need {} bytes",
+            len
+        )));
     }
 
     let bytes = &buffer[*position..*position + len];
@@ -93,9 +120,14 @@ fn read_modified_utf8_string(buffer: &[u8], position: &mut usize) -> Result<Stri
 }
 
 /// Read a nullable Modified UTF-8 string (1-byte flag + optional string).
-fn read_nullable_modified_utf8(buffer: &[u8], position: &mut usize) -> Result<Option<String>, Base64DecodeError> {
+fn read_nullable_modified_utf8(
+    buffer: &[u8],
+    position: &mut usize,
+) -> Result<Option<String>, Base64DecodeError> {
     if *position + 1 > buffer.len() {
-        return Err(Base64DecodeError::Custom("Unexpected end of buffer reading nullable flag".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Unexpected end of buffer reading nullable flag".to_string(),
+        ));
     }
     let present = buffer[*position] != 0;
     *position += 1;
@@ -113,14 +145,14 @@ fn try_parse_seekable_trailer(buffer: &[u8]) -> Option<bool> {
     for cut in 1..=max_try {
         let tail = &buffer[buffer.len() - cut..];
         let mut pos = 0;
-        
+
         if pos >= tail.len() {
             continue;
         }
-        
+
         let present = tail[pos] != 0;
         pos += 1;
-        
+
         if !present {
             continue;
         }
@@ -140,13 +172,17 @@ fn try_parse_seekable_trailer(buffer: &[u8]) -> Option<bool> {
 /// Decode a track using lavalink/ibuki format (Modified UTF-8 with seekable trailer).
 pub fn decode_track(encoded: &str) -> Result<ApiTrackInfo, Base64DecodeError> {
     if encoded.is_empty() {
-        return Err(Base64DecodeError::Custom("Decode Error: Input string is null or empty".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Decode Error: Input string is null or empty".to_string(),
+        ));
     }
 
     let buffer = BASE64_STANDARD.decode(encoded)?;
-    
+
     if buffer.len() < 4 {
-        return Err(Base64DecodeError::Custom("Decode Error: Buffer too short".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Decode Error: Buffer too short".to_string(),
+        ));
     }
 
     let mut position = 0;
@@ -157,42 +193,53 @@ pub fn decode_track(encoded: &str) -> Result<ApiTrackInfo, Base64DecodeError> {
     let message_size = (header & 0x3FFFFFFF) as usize;
 
     if message_size == 0 {
-        return Err(Base64DecodeError::Custom("Decode Error: message size is 0".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Decode Error: message size is 0".to_string(),
+        ));
     }
 
     if position + message_size > buffer.len() {
-        return Err(Base64DecodeError::Custom(format!("Decode Error: message size {} exceeds buffer", message_size)));
+        return Err(Base64DecodeError::Custom(format!(
+            "Decode Error: message size {} exceeds buffer",
+            message_size
+        )));
     }
 
     let mut message_buf = &buffer[position..position + message_size];
     position += message_size;
 
     // Try to parse seekable trailer
-    let (seekable, message_without_trailer) = if let Some(seekable_value) = try_parse_seekable_trailer(message_buf) {
-        let mut found_cut = 0;
-        let max_try = message_buf.len().min(512);
-        for cut in 1..=max_try {
-            let tail = &message_buf[message_buf.len() - cut..];
-            let mut pos = 0;
-            if pos < tail.len() && tail[pos] != 0 {
-                pos += 1;
-                if let Ok(s) = read_modified_utf8_string(tail, &mut pos) {
-                    if pos == tail.len() && (s == "IBUKI:seekableY" || s == "IBUKI:seekableN") {
-                        found_cut = cut;
-                        break;
+    let (seekable, message_without_trailer) =
+        if let Some(seekable_value) = try_parse_seekable_trailer(message_buf) {
+            let mut found_cut = 0;
+            let max_try = message_buf.len().min(512);
+            for cut in 1..=max_try {
+                let tail = &message_buf[message_buf.len() - cut..];
+                let mut pos = 0;
+                if pos < tail.len() && tail[pos] != 0 {
+                    pos += 1;
+                    if let Ok(s) = read_modified_utf8_string(tail, &mut pos) {
+                        if pos == tail.len() && (s == "IBUKI:seekableY" || s == "IBUKI:seekableN") {
+                            found_cut = cut;
+                            break;
+                        }
                     }
                 }
             }
-        }
-        (Some(seekable_value), &message_buf[..message_buf.len() - found_cut])
-    } else {
-        (None, message_buf)
-    };
+            (
+                Some(seekable_value),
+                &message_buf[..message_buf.len() - found_cut],
+            )
+        } else {
+            (None, message_buf)
+        };
 
     message_buf = message_without_trailer;
     let mut msg_pos = 0;
     if msg_pos + 1 > message_buf.len() {
-        return Err(Base64DecodeError::Custom("Decode Error: no version byte".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Decode Error: no version byte".to_string(),
+        ));
     }
     let version = message_buf[msg_pos];
     msg_pos += 1;
@@ -201,18 +248,28 @@ pub fn decode_track(encoded: &str) -> Result<ApiTrackInfo, Base64DecodeError> {
     let author = read_modified_utf8_string(message_buf, &mut msg_pos)?;
 
     if msg_pos + 8 > message_buf.len() {
-        return Err(Base64DecodeError::Custom("Decode Error: not enough bytes for length".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Decode Error: not enough bytes for length".to_string(),
+        ));
     }
     let length = i64::from_be_bytes([
-        message_buf[msg_pos], message_buf[msg_pos + 1], message_buf[msg_pos + 2], message_buf[msg_pos + 3],
-        message_buf[msg_pos + 4], message_buf[msg_pos + 5], message_buf[msg_pos + 6], message_buf[msg_pos + 7],
+        message_buf[msg_pos],
+        message_buf[msg_pos + 1],
+        message_buf[msg_pos + 2],
+        message_buf[msg_pos + 3],
+        message_buf[msg_pos + 4],
+        message_buf[msg_pos + 5],
+        message_buf[msg_pos + 6],
+        message_buf[msg_pos + 7],
     ]) as u64;
     msg_pos += 8;
 
     let identifier = read_modified_utf8_string(message_buf, &mut msg_pos)?;
 
     if msg_pos + 1 > message_buf.len() {
-        return Err(Base64DecodeError::Custom("Decode Error: not enough bytes for isStream".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Decode Error: not enough bytes for isStream".to_string(),
+        ));
     }
     let is_stream = message_buf[msg_pos] != 0;
     msg_pos += 1;
@@ -239,12 +296,20 @@ pub fn decode_track(encoded: &str) -> Result<ApiTrackInfo, Base64DecodeError> {
 
     // Position is the last 8 bytes of the message (before any trailer)
     if message_buf.len() < 8 {
-        return Err(Base64DecodeError::Custom("Decode Error: message too short for position".to_string()));
+        return Err(Base64DecodeError::Custom(
+            "Decode Error: message too short for position".to_string(),
+        ));
     }
     let position_offset = message_buf.len() - 8;
     let position_value = i64::from_be_bytes([
-        message_buf[position_offset], message_buf[position_offset + 1], message_buf[position_offset + 2], message_buf[position_offset + 3],
-        message_buf[position_offset + 4], message_buf[position_offset + 5], message_buf[position_offset + 6], message_buf[position_offset + 7],
+        message_buf[position_offset],
+        message_buf[position_offset + 1],
+        message_buf[position_offset + 2],
+        message_buf[position_offset + 3],
+        message_buf[position_offset + 4],
+        message_buf[position_offset + 5],
+        message_buf[position_offset + 6],
+        message_buf[position_offset + 7],
     ]) as u64;
 
     let is_seekable = seekable.unwrap_or(!is_stream);

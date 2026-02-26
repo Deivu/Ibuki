@@ -1,7 +1,6 @@
 use reqwest::Client;
 use serde_json::Value;
 
-
 use super::api::InnertubeApi;
 use crate::util::errors::ResolverError;
 
@@ -22,6 +21,8 @@ impl LiveChat {
     pub async fn poll(&self, _continuation: &str) -> Result<Value, ResolverError> {
         // Need to implement the "get_live_chat" endpoint logic
         // self.api.make_request(...)
-        Err(ResolverError::Custom("LiveChat not implemented".to_string()))
+        Err(ResolverError::Custom(
+            "LiveChat not implemented".to_string(),
+        ))
     }
 }

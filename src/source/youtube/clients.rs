@@ -1,8 +1,4 @@
-use super::api::YOUTUBE_API_URL;
-
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientType {
@@ -96,7 +92,10 @@ impl InnertubeClient for AndroidClient {
             client: InnertubeClientInfo {
                 client_name: "ANDROID".to_string(),
                 client_version: "20.01.35".to_string(),
-                user_agent: Some("com.google.android.youtube/20.01.35 (Linux; U; Android 14) identity".to_string()),
+                user_agent: Some(
+                    "com.google.android.youtube/20.01.35 (Linux; U; Android 14) identity"
+                        .to_string(),
+                ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
@@ -112,7 +111,10 @@ impl InnertubeClient for AndroidClient {
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
-            ("User-Agent".to_string(), "com.google.android.youtube/20.01.35 (Linux; U; Android 14) identity".to_string()),
+            (
+                "User-Agent".to_string(),
+                "com.google.android.youtube/20.01.35 (Linux; U; Android 14) identity".to_string(),
+            ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
         ]
     }
@@ -131,7 +133,10 @@ impl InnertubeClient for AndroidMusicClient {
             client: InnertubeClientInfo {
                 client_name: "ANDROID_MUSIC".to_string(),
                 client_version: "7.27.52".to_string(),
-                user_agent: Some("com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip".to_string()),
+                user_agent: Some(
+                    "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip"
+                        .to_string(),
+                ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
@@ -147,7 +152,11 @@ impl InnertubeClient for AndroidMusicClient {
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
-            ("User-Agent".to_string(), "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip".to_string()),
+            (
+                "User-Agent".to_string(),
+                "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip"
+                    .to_string(),
+            ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
         ]
     }
@@ -203,7 +212,10 @@ impl InnertubeClient for IosClient {
             client: InnertubeClientInfo {
                 client_name: "IOS".to_string(),
                 client_version: "20.03.02".to_string(),
-                user_agent: Some("com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X)".to_string()),
+                user_agent: Some(
+                    "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X)"
+                        .to_string(),
+                ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
@@ -219,10 +231,17 @@ impl InnertubeClient for IosClient {
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
-            ("User-Agent".to_string(), "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X)".to_string()),
+            (
+                "User-Agent".to_string(),
+                "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X)"
+                    .to_string(),
+            ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
             ("X-YouTube-Client-Name".to_string(), "5".to_string()),
-            ("X-YouTube-Client-Version".to_string(), "20.03.02".to_string()),
+            (
+                "X-YouTube-Client-Version".to_string(),
+                "20.03.02".to_string(),
+            ),
         ]
     }
 }
@@ -235,7 +254,9 @@ impl InnertubeClient for TvClient {
     fn name(&self) -> &'static str {
         "TV"
     }
-    fn needs_cipher(&self) -> bool { true }
+    fn needs_cipher(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -272,7 +293,9 @@ impl InnertubeClient for TvEmbeddedClient {
     fn name(&self) -> &'static str {
         "TvEmbedded"
     }
-    fn needs_cipher(&self) -> bool { true }
+    fn needs_cipher(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -316,7 +339,9 @@ impl InnertubeClient for WebClient {
     fn name(&self) -> &'static str {
         "Web"
     }
-    fn needs_cipher(&self) -> bool { true }
+    fn needs_cipher(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -353,7 +378,9 @@ impl InnertubeClient for WebRemixClient {
     fn name(&self) -> &'static str {
         "WebRemix"
     }
-    fn needs_cipher(&self) -> bool { true }
+    fn needs_cipher(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -390,7 +417,9 @@ impl InnertubeClient for WebEmbeddedClient {
     fn name(&self) -> &'static str {
         "WebEmbedded"
     }
-    fn needs_cipher(&self) -> bool { true }
+    fn needs_cipher(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -429,7 +458,9 @@ impl InnertubeClient for WebParentToolsClient {
     fn name(&self) -> &'static str {
         "WebParentTools"
     }
-    fn needs_cipher(&self) -> bool { true }
+    fn needs_cipher(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -475,5 +506,3 @@ pub fn get_client_by_name(name: &str) -> Option<Box<dyn InnertubeClient>> {
         _ => None,
     }
 }
-
-

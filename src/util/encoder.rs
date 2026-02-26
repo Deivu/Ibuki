@@ -1,4 +1,3 @@
-use crate::constants::TRACK_INFO_VERSIONED;
 use crate::models::ApiTrackInfo;
 use crate::util::errors::Base64EncodeError;
 use base64::Engine;
@@ -29,7 +28,6 @@ fn optional_write_string(
     }
     Ok(())
 }
-
 
 /// Encode a string using Modified UTF-8 (Java/Lavalink compatible).
 fn encode_modified_utf8(value: &str) -> Vec<u8> {
@@ -65,7 +63,10 @@ fn write_modified_utf8_string(buf: &mut Vec<u8>, value: &str) -> Result<(), Base
 }
 
 /// Write a nullable Modified UTF-8 string (1-byte presence flag + optional string).
-fn write_nullable_modified_utf8(buf: &mut Vec<u8>, opt: &Option<String>) -> Result<(), Base64EncodeError> {
+fn write_nullable_modified_utf8(
+    buf: &mut Vec<u8>,
+    opt: &Option<String>,
+) -> Result<(), Base64EncodeError> {
     match opt {
         Some(s) => {
             buf.push(1);

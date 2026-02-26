@@ -134,6 +134,8 @@ pub struct ApiTrack {
     pub encoded: String,
     pub info: ApiTrackInfo,
     pub plugin_info: Empty,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_data: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -207,6 +209,8 @@ pub struct UpdateApiPlayerTrack {
     pub encoded: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_data: Option<Value>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]

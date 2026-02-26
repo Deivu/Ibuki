@@ -70,6 +70,5 @@ impl AudioFilter for KaraokeFilter {
         "Karaoke"
     }
 
-    fn reset(&mut self) {
-    }
+    fn reset(&mut self) {}
 }

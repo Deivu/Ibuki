@@ -38,7 +38,7 @@ impl AmazonMusic {
 
     async fn get_amazon_config(&self) -> Result<CachedConfig, ResolverError> {
         let mut cache = self.config_cache.lock().await;
-        
+
         if let Some(ref cached) = *cache {
             let elapsed = Instant::now().duration_since(cached.cached_at);
             if elapsed.as_millis() < CONFIG_TTL_MS as u128 {
@@ -151,9 +151,18 @@ impl AmazonMusic {
     fn parse_iso8601_duration(&self, duration: &str) -> u64 {
         let re = Regex::new(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?").unwrap();
         if let Some(caps) = re.captures(duration) {
-            let hours: u64 = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-            let minutes: u64 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-            let seconds: u64 = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+            let hours: u64 = caps
+                .get(1)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let minutes: u64 = caps
+                .get(2)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let seconds: u64 = caps
+                .get(3)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
             return (hours * 3600 + minutes * 60 + seconds) * 1000;
         }
         0
@@ -173,7 +182,7 @@ impl AmazonMusic {
 
         seconds * 1000
     }
-    
+
     fn parse_time_string(&self, s: &str) -> u64 {
         let s = s.to_uppercase();
         let mut total = 0u64;
@@ -256,7 +265,7 @@ impl AmazonMusic {
         if let Some(result) = self.fetch_json_ld(url, None).await? {
             return Ok(Some(result));
         }
-        
+
         Ok(Some(ApiTrackResult::Empty(None)))
     }
 
@@ -268,7 +277,7 @@ impl AmazonMusic {
         if let Some(result) = self.fetch_json_ld(url, None).await? {
             return Ok(Some(result));
         }
-        
+
         Ok(Some(ApiTrackResult::Empty(None)))
     }
 
@@ -280,7 +289,7 @@ impl AmazonMusic {
         if let Some(result) = self.fetch_json_ld(url, None).await? {
             return Ok(Some(result));
         }
-        
+
         Ok(Some(ApiTrackResult::Empty(None)))
     }
 
@@ -305,19 +314,20 @@ impl AmazonMusic {
         let header_image = self.extract_header_image(&body);
         let og_image = self.extract_og_image(&body);
         let artwork_url = header_image.or(og_image);
-        let json_ld_regex = Regex::new(
-            r#"<script [^>]*type="application/ld\+json"[^>]*>([\s\S]*?)</script>"#
-        ).unwrap();
+        let json_ld_regex =
+            Regex::new(r#"<script [^>]*type="application/ld\+json"[^>]*>([\s\S]*?)</script>"#)
+                .unwrap();
 
         let mut collection: Option<JsonLdData> = None;
         let mut track_data: Option<JsonLdData> = None;
 
         for cap in json_ld_regex.captures_iter(&body) {
             if let Some(json_str) = cap.get(1) {
-                let content = json_str.as_str()
+                let content = json_str
+                    .as_str()
                     .replace("&quot;", "\"")
                     .replace("&amp;", "&");
-                
+
                 if let Ok(data) = serde_json::from_str::<JsonLdData>(&content) {
                     match data.data_type.as_str() {
                         "MusicAlbum" | "MusicGroup" | "Playlist" => {
@@ -359,16 +369,21 @@ impl AmazonMusic {
             }
             if let Some(ref track_list) = coll.track {
                 for (idx, t) in track_list.iter().enumerate() {
-                    let id = self.extract_identifier(t.url.as_deref().unwrap_or(""))
+                    let id = self
+                        .extract_identifier(t.url.as_deref().unwrap_or(""))
                         .or_else(|| t.id.as_ref().and_then(|id| self.extract_identifier(id)))
                         .unwrap_or_else(|| format!("am-{}", idx));
 
-                    let artist = t.by_artist.as_ref()
+                    let artist = t
+                        .by_artist
+                        .as_ref()
                         .or(t.author.as_ref())
                         .and_then(|a| a.name())
                         .unwrap_or(&collection_name);
 
-                    let duration = t.duration.as_ref()
+                    let duration = t
+                        .duration
+                        .as_ref()
                         .map(|d| self.parse_iso8601_duration(d))
                         .unwrap_or(0);
 
@@ -380,7 +395,11 @@ impl AmazonMusic {
                         is_stream: false,
                         position: 0,
                         title: t.name.clone(),
-                        uri: Some(t.url.clone().unwrap_or_else(|| format!("{}/tracks/{}", MUSIC_BASE, id))),
+                        uri: Some(
+                            t.url
+                                .clone()
+                                .unwrap_or_else(|| format!("{}/tracks/{}", MUSIC_BASE, id)),
+                        ),
                         artwork_url: collection_image.clone(),
                         isrc: t.isrc_code.clone(),
                         source_name: "amazonmusic".to_string(),
@@ -401,6 +420,7 @@ impl AmazonMusic {
                         encoded: encode_track(selected)?,
                         info: selected.clone(),
                         plugin_info: Empty,
+                        user_data: None,
                     })));
                 }
             }
@@ -409,6 +429,7 @@ impl AmazonMusic {
                     encoded: encode_track(&tracks[0])?,
                     info: tracks[0].clone(),
                     plugin_info: Empty,
+                    user_data: None,
                 })));
             }
             return Ok(Some(ApiTrackResult::Playlist(ApiTrackPlaylist {
@@ -423,26 +444,31 @@ impl AmazonMusic {
                         encoded: encode_track(&info).unwrap_or_default(),
                         info,
                         plugin_info: Empty,
+                        user_data: None,
                     })
                     .collect(),
             })));
         }
 
         if let Some(td) = track_data {
-            let artist = td.by_artist.as_ref()
+            let artist = td
+                .by_artist
+                .as_ref()
                 .or(td.author.as_ref())
                 .and_then(|a| a.name())
                 .unwrap_or("Unknown Artist");
 
-            let duration = td.duration.as_ref()
+            let duration = td
+                .duration
+                .as_ref()
                 .map(|d| self.parse_iso8601_duration(d))
                 .unwrap_or(0);
 
-            let track_image = td.image.as_ref()
-                .or(collection_image.as_ref())
-                .cloned();
+            let track_image = td.image.as_ref().or(collection_image.as_ref()).cloned();
 
-            let id = self.extract_identifier(url).unwrap_or_else(|| "unknown".to_string());
+            let id = self
+                .extract_identifier(url)
+                .unwrap_or_else(|| "unknown".to_string());
 
             let track_info = ApiTrackInfo {
                 identifier: id,
@@ -462,6 +488,7 @@ impl AmazonMusic {
                 encoded: encode_track(&track_info)?,
                 info: track_info,
                 plugin_info: Empty,
+                user_data: None,
             })));
         }
 
@@ -470,23 +497,20 @@ impl AmazonMusic {
 
     fn extract_header_primary_text(&self, html: &str) -> Option<String> {
         let re = Regex::new(r#"<music-detail-header[^>]*primary-text="([^"]+)""#).unwrap();
-        re.captures(html).map(|cap| {
-            cap.get(1).unwrap().as_str().replace("&amp;", "&")
-        })
+        re.captures(html)
+            .map(|cap| cap.get(1).unwrap().as_str().replace("&amp;", "&"))
     }
 
     fn extract_header_image(&self, html: &str) -> Option<String> {
         let re = Regex::new(r#"<music-detail-header[^>]*image-src="([^"]+)""#).unwrap();
-        re.captures(html).map(|cap| {
-            cap.get(1).unwrap().as_str().to_string()
-        })
+        re.captures(html)
+            .map(|cap| cap.get(1).unwrap().as_str().to_string())
     }
 
     fn extract_og_image(&self, html: &str) -> Option<String> {
         let re = Regex::new(r#"<meta property="og:image" content="([^"]+)""#).unwrap();
-        re.captures(html).map(|cap| {
-            cap.get(1).unwrap().as_str().to_string()
-        })
+        re.captures(html)
+            .map(|cap| cap.get(1).unwrap().as_str().to_string())
     }
 
     fn parse_html_rows(
@@ -496,7 +520,7 @@ impl AmazonMusic {
         collection_image: &Option<String>,
     ) -> Vec<ApiTrackInfo> {
         let mut tracks = Vec::new();
-        
+
         let re = Regex::new(
             r#"<(?:music-image-row|music-text-row)[^>]*primary-text="([^"]+)"[^>]*primary-href="([^"]+)"(?:[^>]*secondary-text-1="([^"]+)")?[^>]*duration="([^"]+)"(?:[^>]*image-src="([^"]+)")?"#
         ).unwrap();
@@ -504,15 +528,18 @@ impl AmazonMusic {
         for cap in re.captures_iter(html) {
             let title = cap.get(1).unwrap().as_str().replace("&amp;", "&");
             let href = cap.get(2).unwrap().as_str();
-            let artist = cap.get(3)
+            let artist = cap
+                .get(3)
                 .map(|m| m.as_str().replace("&amp;", "&"))
                 .unwrap_or_else(|| collection_name.to_string());
             let duration_str = cap.get(4).unwrap().as_str();
-            let image = cap.get(5)
+            let image = cap
+                .get(5)
                 .map(|m| m.as_str().to_string())
                 .or_else(|| collection_image.clone());
 
-            let id = self.extract_identifier(href)
+            let id = self
+                .extract_identifier(href)
                 .unwrap_or_else(|| format!("am-{}", tracks.len()));
 
             let duration = if duration_str.contains(':') {
@@ -593,7 +620,7 @@ impl AmazonMusic {
         }
 
         let data: TrackDurationResponse = response.json().await?;
-        
+
         if let Some(methods) = data.methods {
             if let Some(method) = methods.first() {
                 if let Some(template) = &method.template {
@@ -682,7 +709,9 @@ impl AmazonMusic {
                             if let Some(items) = widget.items {
                                 for item in items {
                                     let is_song = item.label.as_deref() == Some("song");
-                                    let is_square = item.interface.as_ref()
+                                    let is_square = item
+                                        .interface
+                                        .as_ref()
                                         .map(|i| i.contains("SquareHorizontalItemElement"))
                                         .unwrap_or(false);
 
@@ -693,19 +722,23 @@ impl AmazonMusic {
                                     if let Some(primary_link) = item.primary_link {
                                         if let Some(deeplink) = primary_link.deeplink {
                                             let identifier = self.extract_identifier(&deeplink);
-                                            
+
                                             if let Some(id) = identifier {
                                                 if !is_song && !deeplink.contains("trackAsin=") {
                                                     continue;
                                                 }
 
-                                                let title = item.primary_text
+                                                let title = item
+                                                    .primary_text
                                                     .map(|t| t.as_str().replace("&amp;", "&"))
                                                     .unwrap_or_else(|| "Unknown Track".to_string());
 
-                                                let author = item.secondary_text
+                                                let author = item
+                                                    .secondary_text
                                                     .map(|t| t.as_str().replace("&amp;", "&"))
-                                                    .unwrap_or_else(|| "Unknown Artist".to_string());
+                                                    .unwrap_or_else(|| {
+                                                        "Unknown Artist".to_string()
+                                                    });
 
                                                 tracks.push(ApiTrackInfo {
                                                     identifier: id.clone(),
@@ -715,7 +748,10 @@ impl AmazonMusic {
                                                     is_stream: false,
                                                     position: 0,
                                                     title,
-                                                    uri: Some(format!("{}/tracks/{}", MUSIC_BASE, id)),
+                                                    uri: Some(format!(
+                                                        "{}/tracks/{}",
+                                                        MUSIC_BASE, id
+                                                    )),
                                                     artwork_url: item.image,
                                                     isrc: None,
                                                     source_name: "amazonmusic".to_string(),
@@ -751,6 +787,7 @@ impl AmazonMusic {
                     encoded: encode_track(&info).unwrap_or_default(),
                     info,
                     plugin_info: Empty,
+                    user_data: None,
                 })
                 .collect(),
         )))
@@ -813,25 +850,31 @@ impl Source for AmazonMusic {
     async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError> {
         let query = format!("ytsearch:{} - {}", track.info.author, track.info.title);
         tracing::debug!("AmazonMusic: Searching YouTube for: {}", query);
-        
+
         if let Some(youtube) = crate::SOURCES.get("youtube") {
             if let Some(Query::Search(q)) = youtube.to_inner_ref().parse_query(&query) {
                 tracing::debug!("AmazonMusic: Parsed YouTube search query: {:?}", q);
                 match youtube.to_inner_ref().resolve(Query::Search(q)).await {
-                    Ok(Some(res)) => {
-                        match res {
-                            ApiTrackResult::Search(tracks) => {
-                                tracing::debug!("AmazonMusic: YouTube returned {} tracks", tracks.len());
-                                if let Some(first) = tracks.into_iter().next() {
-                                    tracing::debug!("AmazonMusic: Playing first result: {}", first.info.title);
-                                    return youtube.to_inner_ref().make_playable(first).await;
-                                }
-                            }
-                            _ => {
-                                tracing::warn!("AmazonMusic: Unexpected result type from YouTube search");
+                    Ok(Some(res)) => match res {
+                        ApiTrackResult::Search(tracks) => {
+                            tracing::debug!(
+                                "AmazonMusic: YouTube returned {} tracks",
+                                tracks.len()
+                            );
+                            if let Some(first) = tracks.into_iter().next() {
+                                tracing::debug!(
+                                    "AmazonMusic: Playing first result: {}",
+                                    first.info.title
+                                );
+                                return youtube.to_inner_ref().make_playable(first).await;
                             }
                         }
-                    }
+                        _ => {
+                            tracing::warn!(
+                                "AmazonMusic: Unexpected result type from YouTube search"
+                            );
+                        }
+                    },
                     Ok(None) => {
                         tracing::warn!("AmazonMusic: YouTube search returned no results");
                     }
@@ -842,10 +885,9 @@ impl Source for AmazonMusic {
                 }
             }
         }
-        
+
         Err(ResolverError::MissingRequiredData(
             "Failed to find YouTube fallback or no results",
         ))
     }
 }
-

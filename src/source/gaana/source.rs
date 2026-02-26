@@ -366,7 +366,7 @@ impl Gaana {
         Some(ApiTrack {
             encoded: encode_track(&info).ok()?,
             info,
-            plugin_info: crate::models::Empty,
+            plugin_info: crate::models::Empty, user_data: None
         })
     }
 

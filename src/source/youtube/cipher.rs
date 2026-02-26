@@ -1,5 +1,5 @@
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{error, warn};
 
 use crate::CONFIG;
@@ -13,9 +13,12 @@ pub struct CipherManager {
 
 impl CipherManager {
     pub fn new() -> Self {
-        let config = CONFIG.youtube_config.as_ref().expect("YouTube config should be present");
+        let config = CONFIG
+            .youtube_config
+            .as_ref()
+            .expect("YouTube config should be present");
         let cipher_config = config.cipher.as_ref();
-        
+
         let server_url = cipher_config.map(|c| c.url.clone());
         let auth_token = cipher_config.and_then(|c| c.token.clone());
 
@@ -38,7 +41,9 @@ impl CipherManager {
         player_url: &str,
     ) -> Result<String, ResolverError> {
         let Some(base_url) = &self.server_url else {
-            return Err(ResolverError::Custom("Cipher Server URL not configured".to_string()));
+            return Err(ResolverError::Custom(
+                "Cipher Server URL not configured".to_string(),
+            ));
         };
 
         let mut payload = json!({
@@ -47,11 +52,17 @@ impl CipherManager {
         });
 
         if let Some(s) = sp {
-            payload.as_object_mut().unwrap().insert("signature".to_string(), json!(s));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("signature".to_string(), json!(s));
         }
-        
+
         if let Some(n) = n_param {
-            payload.as_object_mut().unwrap().insert("n".to_string(), json!(n));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("n".to_string(), json!(n));
         }
 
         let mut req = self.http.post(base_url).json(&payload);
@@ -63,18 +74,20 @@ impl CipherManager {
         let res = req.send().await.map_err(ResolverError::Reqwest)?;
 
         if !res.status().is_success() {
-             let status = res.status();
-             let text = res.text().await.unwrap_or_default();
-             error!("Cipher Server Error: {} - {}", status, text);
-             return Err(ResolverError::Custom(format!("Cipher Error: {}", status)));
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            error!("Cipher Server Error: {} - {}", status, text);
+            return Err(ResolverError::Custom(format!("Cipher Error: {}", status)));
         }
 
         let body: Value = res.json().await.map_err(ResolverError::Reqwest)?;
-        
+
         if let Some(resolved) = body.get("resolved_url").and_then(|v| v.as_str()) {
             Ok(resolved.to_string())
         } else {
-            Err(ResolverError::Custom("Cipher Server returned no resolved_url".to_string()))
+            Err(ResolverError::Custom(
+                "Cipher Server returned no resolved_url".to_string(),
+            ))
         }
     }
 }

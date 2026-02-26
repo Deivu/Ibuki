@@ -7,9 +7,7 @@ use crate::util::source::Source;
 use crate::util::url::is_url;
 use async_trait::async_trait;
 use reqwest::Client;
-use songbird::input::{AuxMetadata, Compose, HttpRequest, Input, LiveInput};
-use songbird::tracks::Track;
-use std::sync::Arc;
+use songbird::input::{AuxMetadata, Compose, HttpRequest, Input};
 use std::time::Duration;
 
 pub struct Http {
@@ -31,7 +29,10 @@ impl Source for Http {
             return None;
         }
 
-        if query.contains("spotify.com") || query.contains("spotify.app.link") || query.contains("soundcloud.com") {
+        if query.contains("spotify.com")
+            || query.contains("spotify.app.link")
+            || query.contains("soundcloud.com")
+        {
             return None;
         }
 
@@ -76,13 +77,18 @@ impl Source for Http {
             encoded: encode_track(&info)?,
             info,
             plugin_info: Empty,
+            user_data: None,
         };
 
         Ok(Some(ApiTrackResult::Track(track)))
     }
 
     async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError> {
-        let url = track.info.uri.clone().ok_or(ResolverError::MissingRequiredData("HTTP URI"))?;
+        let url = track
+            .info
+            .uri
+            .clone()
+            .ok_or(ResolverError::MissingRequiredData("HTTP URI"))?;
         let mut request = HttpRequest::new(self.get_client(), url);
         let stream = request.create_async().await?;
 

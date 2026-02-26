@@ -33,6 +33,8 @@ block-padding = "0.3.3"
 url = "2.5.8"
 bytes = "1.11.1"
 aes = "0.8.4"
+sysinfo = "0.36.1"
+moka = { version = "0.12.13", features = ["sync"] }
 
 [dependencies.mimalloc]
 version = "0.1.48"

@@ -1,6 +1,7 @@
 use axum::body::Body;
 use axum::http::{self, StatusCode};
 use axum::response::{IntoResponse, Response};
+use kameo::Reply;
 use kameo::error::HookError;
 use kameo::prelude::SendError;
 use std::sync::Arc;
@@ -72,7 +73,6 @@ pub enum ResolverError {
     #[error(transparent)]
     AudioStream(#[from] songbird::input::AudioStreamError),
     #[error(transparent)]
-
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
     ToStr(#[from] reqwest::header::ToStrError),
@@ -93,8 +93,6 @@ pub enum PlayerManagerError {
     #[error("A connection is required to execute this action")]
     MissingConnection,
 }
-
-use kameo::Reply;
 
 #[derive(Error, Clone, Debug, Reply)]
 pub enum PlayerError {
@@ -199,7 +197,7 @@ impl IntoResponse for EndpointError {
             self
         );
 
-        let tuple = match self {
+        let (status, message) = match self {
             EndpointError::MissingOption(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             EndpointError::UnprocessableEntity(_) => {
                 (StatusCode::UNPROCESSABLE_ENTITY, self.to_string())
@@ -245,12 +243,27 @@ impl IntoResponse for EndpointError {
             EndpointError::FailedMessage(actor_error) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, actor_error.to_string())
             }
-            EndpointError::InvalidIpAddress(_) => {
-                (StatusCode::BAD_REQUEST, self.to_string())
-            }
+            EndpointError::InvalidIpAddress(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             EndpointError::Unauthorized => (StatusCode::FORBIDDEN, self.to_string()),
         };
 
-        tuple.into_response()
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let error_body = serde_json::json!( {
+            "timestamp": timestamp,
+            "status": status.as_u16(),
+            "error": status.canonical_reason().unwrap_or("Unknown"),
+            "message": message,
+            "path": ""
+        });
+
+        Response::builder()
+            .status(status)
+            .header("Content-Type", "application/json")
+            .body(Body::from(error_body.to_string()))
+            .unwrap()
     }
 }

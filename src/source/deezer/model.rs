@@ -262,7 +262,10 @@ pub struct InternalDeezerGetUserData {
     pub from_onboarding: String,
     #[serde(rename = "CUSTO", deserialize_with = "string_or_number")]
     pub custo: String,
-    #[serde(rename = "SETTING_REFERER_UPLOAD", deserialize_with = "string_or_number")]
+    #[serde(
+        rename = "SETTING_REFERER_UPLOAD",
+        deserialize_with = "string_or_number"
+    )]
     pub setting_referer_upload: String,
     #[serde(rename = "URL_MEDIA", deserialize_with = "string_or_number")]
     pub url_media: String,
@@ -276,7 +279,11 @@ pub struct InternalDeezerUser {
     pub inscription_date: String,
     #[serde(rename = "OPTIONS")]
     pub options: InternalDeezerOptions,
-    #[serde(rename = "EXPLICIT_CONTENT_LEVEL", default, deserialize_with = "optional_string_or_number")]
+    #[serde(
+        rename = "EXPLICIT_CONTENT_LEVEL",
+        default,
+        deserialize_with = "optional_string_or_number"
+    )]
     pub explicit_content_level: Option<String>,
     #[serde(rename = "EXPLICIT_CONTENT_LEVELS_AVAILABLE", default)]
     pub explicit_content_levels_available: Option<Vec<String>>,
@@ -462,13 +469,25 @@ impl DeezerQualityFormat {
             cipher: String::from("BF_CBC_STRIPE"),
         }
     }
-    
+
     pub fn all_formats() -> Vec<Self> {
         vec![
-            Self { format: "FLAC".to_string(), cipher: "BF_CBC_STRIPE".to_string() },
-            Self { format: "MP3_256".to_string(), cipher: "BF_CBC_STRIPE".to_string() },
-            Self { format: "MP3_128".to_string(), cipher: "BF_CBC_STRIPE".to_string() },
-            Self { format: "MP3_MISC".to_string(), cipher: "BF_CBC_STRIPE".to_string() },
+            Self {
+                format: "FLAC".to_string(),
+                cipher: "BF_CBC_STRIPE".to_string(),
+            },
+            Self {
+                format: "MP3_256".to_string(),
+                cipher: "BF_CBC_STRIPE".to_string(),
+            },
+            Self {
+                format: "MP3_128".to_string(),
+                cipher: "BF_CBC_STRIPE".to_string(),
+            },
+            Self {
+                format: "MP3_MISC".to_string(),
+                cipher: "BF_CBC_STRIPE".to_string(),
+            },
         ]
     }
 }
@@ -485,7 +504,10 @@ pub struct DeezerRecommendationBody {
     pub sng_id: Option<String>,
     #[serde(rename = "art_id", skip_serializing_if = "Option::is_none")]
     pub art_id: Option<String>,
-    #[serde(rename = "start_with_input_track", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "start_with_input_track",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub start_with_input_track: Option<String>,
 }
 
@@ -539,5 +561,3 @@ pub struct InternalDeezerListData {
 pub struct InternalDeezerRecommendationData {
     pub data: Vec<InternalDeezerSongData>,
 }
-
-

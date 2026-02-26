@@ -37,10 +37,10 @@ impl AudioFilter for TremoloFilter {
         for chunk in samples.chunks_exact_mut(2) {
             let modulation = 1.0 - self.depth * (0.5 * (1.0 - self.phase.sin()));
 
-            let left = (chunk[0] as f64 * modulation)
-                .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
-            let right = (chunk[1] as f64 * modulation)
-                .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
+            let left =
+                (chunk[0] as f64 * modulation).clamp(i16::MIN as f64, i16::MAX as f64) as i16;
+            let right =
+                (chunk[1] as f64 * modulation).clamp(i16::MIN as f64, i16::MAX as f64) as i16;
 
             chunk[0] = left;
             chunk[1] = right;

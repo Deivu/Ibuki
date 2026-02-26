@@ -16,9 +16,8 @@ impl EqualizerFilter {
     const Q: f64 = 1.0;
 
     pub fn new(sample_rate: u32) -> Self {
-        let bands = Self::FREQUENCIES.map(|freq| {
-            BiquadFilter::peaking_eq(sample_rate as f64, freq, Self::Q, 0.0)
-        });
+        let bands = Self::FREQUENCIES
+            .map(|freq| BiquadFilter::peaking_eq(sample_rate as f64, freq, Self::Q, 0.0));
 
         Self {
             bands,
@@ -54,8 +53,12 @@ impl EqualizerFilter {
 
     fn update_band(&mut self, band_index: usize, gain: f64, sample_rate: u32) {
         let db = gain * 6.0;
-        self.bands[band_index] =
-            BiquadFilter::peaking_eq(sample_rate as f64, Self::FREQUENCIES[band_index], Self::Q, db);
+        self.bands[band_index] = BiquadFilter::peaking_eq(
+            sample_rate as f64,
+            Self::FREQUENCIES[band_index],
+            Self::Q,
+            db,
+        );
     }
 }
 
@@ -149,10 +152,9 @@ impl BiquadFilter {
     }
 
     fn process_left(&mut self, input: f32) -> f32 {
-        let output =
-            self.b0 * input + self.b1 * self.lx1 + self.b2 * self.lx2
-                - self.a1 * self.ly1
-                - self.a2 * self.ly2;
+        let output = self.b0 * input + self.b1 * self.lx1 + self.b2 * self.lx2
+            - self.a1 * self.ly1
+            - self.a2 * self.ly2;
 
         self.lx2 = self.lx1;
         self.lx1 = input;
@@ -163,10 +165,9 @@ impl BiquadFilter {
     }
 
     fn process_right(&mut self, input: f32) -> f32 {
-        let output =
-            self.b0 * input + self.b1 * self.rx1 + self.b2 * self.rx2
-                - self.a1 * self.ry1
-                - self.a2 * self.ry2;
+        let output = self.b0 * input + self.b1 * self.rx1 + self.b2 * self.rx2
+            - self.a1 * self.ry1
+            - self.a2 * self.ry2;
 
         self.rx2 = self.rx1;
         self.rx1 = input;

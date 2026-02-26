@@ -87,4 +87,3 @@ pub struct SearchResponse {
 pub struct StreamAuthResponse {
     pub url: String,
 }
-

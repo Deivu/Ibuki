@@ -1,7 +1,9 @@
-use crate::models::{ApiPlaylistInfo, ApiTrack, ApiTrackInfo, ApiTrackPlaylist, ApiTrackResult, Empty};
+use crate::models::{
+    ApiPlaylistInfo, ApiTrack, ApiTrackInfo, ApiTrackPlaylist, ApiTrackResult, Empty,
+};
+use crate::playback::hls::handler::start_hls_stream;
 use crate::source::soundcloud::model::*;
 use crate::source::soundcloud::{BASE_URL, BATCH_SIZE, SOUNDCLOUD_URL};
-use crate::playback::hls::handler::start_hls_stream;
 use crate::util::encoder::encode_track;
 use crate::util::errors::ResolverError;
 use crate::util::source::{Query, Source};
@@ -33,24 +35,24 @@ pub struct SoundCloud {
 }
 
 impl SoundCloud {
-    pub fn new(http: Option<Client>, config: Option<&crate::util::config::SoundCloudConfig>) -> Self {
+    pub fn new(
+        http: Option<Client>,
+        config: Option<&crate::util::config::SoundCloudConfig>,
+    ) -> Self {
         let config_client_id = config.and_then(|c| c.client_id.clone());
 
         let url_regex = Regex::new(
-            r"^https?://(?:www\.|m\.)?soundcloud\.com/([^/\s]+)/(?:sets/)?([^/\s]+)(?:\?|$)"
+            r"^https?://(?:www\.|m\.)?soundcloud\.com/([^/\s]+)/(?:sets/)?([^/\s]+)(?:\?|$)",
         )
         .unwrap();
 
         let search_url_regex = Regex::new(
-            r"^https?://(?:www\.)?soundcloud\.com/search(?:/(sounds|people|albums|sets))?(?:\?|$)"
+            r"^https?://(?:www\.)?soundcloud\.com/search(?:/(sounds|people|albums|sets))?(?:\?|$)",
         )
         .unwrap();
 
-        let short_url_regex = Regex::new(
-            r"^https?://on\.soundcloud\.com/[a-zA-Z0-9]+"
-        )
-        .unwrap();
-        
+        let short_url_regex = Regex::new(r"^https?://on\.soundcloud\.com/[a-zA-Z0-9]+").unwrap();
+
         Self {
             client: http.unwrap_or_else(|| Client::new()),
             client_id_cache: Arc::new(Mutex::new(None)),
@@ -105,12 +107,17 @@ impl SoundCloud {
 
     async fn fetch_client_id(&self) -> Result<String, ResolverError> {
         let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-        let response = self.client.get(SOUNDCLOUD_URL)
+        let response = self
+            .client
+            .get(SOUNDCLOUD_URL)
             .header(reqwest::header::USER_AGENT, user_agent)
-            .send().await?;
-        
+            .send()
+            .await?;
+
         if !response.status().is_success() {
-            return Err(ResolverError::FailedStatusCode(response.status().to_string()));
+            return Err(ResolverError::FailedStatusCode(
+                response.status().to_string(),
+            ));
         }
 
         let html = response.text().await?;
@@ -119,7 +126,8 @@ impl SoundCloud {
             return Ok(id);
         }
 
-        let asset_regex = Regex::new(r#"https?://[a-z0-9-]+\.sndcdn\.com/assets/[^"]+\.js"#).unwrap();
+        let asset_regex =
+            Regex::new(r#"https?://[a-z0-9-]+\.sndcdn\.com/assets/[^"]+\.js"#).unwrap();
         let asset_urls: Vec<String> = asset_regex
             .find_iter(&html)
             .map(|m| m.as_str().to_string())
@@ -133,9 +141,13 @@ impl SoundCloud {
         }
 
         for asset_url in asset_urls.iter().rev() {
-            match self.client.get(asset_url)
+            match self
+                .client
+                .get(asset_url)
                 .header(reqwest::header::USER_AGENT, user_agent)
-                .send().await {
+                .send()
+                .await
+            {
                 Ok(response) if response.status().is_success() => {
                     if let Ok(js_content) = response.text().await {
                         if let Some(id) = self.find_client_id(&js_content) {
@@ -218,7 +230,9 @@ impl SoundCloud {
             .await?;
 
         if !response.status().is_success() {
-            return Err(ResolverError::FailedStatusCode(response.status().to_string()));
+            return Err(ResolverError::FailedStatusCode(
+                response.status().to_string(),
+            ));
         }
 
         let search_response: SearchResponse = response.json().await?;
@@ -264,31 +278,31 @@ impl SoundCloud {
                 "albums" | "playlists" => {
                     if kind == "playlist" {
                         if let Ok(playlist) = serde_json::from_value::<Playlist>(item.clone()) {
-                            results.push(self.build_playlist_track(&playlist, search_type == "albums"));
+                            results.push(
+                                self.build_playlist_track(&playlist, search_type == "albums"),
+                            );
                         }
                     }
                 }
-                "all" => {
-                    match kind {
-                        "track" => {
-                            if let Ok(track) = serde_json::from_value::<Track>(item.clone()) {
-                                results.push(self.build_track(&track));
-                            }
+                "all" => match kind {
+                    "track" => {
+                        if let Ok(track) = serde_json::from_value::<Track>(item.clone()) {
+                            results.push(self.build_track(&track));
                         }
-                        "user" => {
-                            if let Ok(user) = serde_json::from_value::<User>(item.clone()) {
-                                results.push(self.build_user_track(&user));
-                            }
-                        }
-                        "playlist" => {
-                            if let Ok(playlist) = serde_json::from_value::<Playlist>(item.clone()) {
-                                let is_album = playlist.is_album.unwrap_or(false);
-                                results.push(self.build_playlist_track(&playlist, is_album));
-                            }
-                        }
-                        _ => {}
                     }
-                }
+                    "user" => {
+                        if let Ok(user) = serde_json::from_value::<User>(item.clone()) {
+                            results.push(self.build_user_track(&user));
+                        }
+                    }
+                    "playlist" => {
+                        if let Ok(playlist) = serde_json::from_value::<Playlist>(item.clone()) {
+                            let is_album = playlist.is_album.unwrap_or(false);
+                            results.push(self.build_playlist_track(&playlist, is_album));
+                        }
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -322,6 +336,7 @@ impl SoundCloud {
             encoded: encode_track(&info).unwrap_or_default(),
             info,
             plugin_info: Empty,
+            user_data: None,
         }
     }
 
@@ -344,6 +359,7 @@ impl SoundCloud {
             encoded: encode_track(&info).unwrap_or_default(),
             info,
             plugin_info: Empty,
+            user_data: None,
         }
     }
 
@@ -368,11 +384,15 @@ impl SoundCloud {
 
         ApiTrack {
             encoded: encode_track(&info).unwrap_or_else(|e| {
-                eprintln!("Failed to encode SoundCloud playlist '{}' (id: {}): {:?}", info.title, info.identifier, e);
+                eprintln!(
+                    "Failed to encode SoundCloud playlist '{}' (id: {}): {:?}",
+                    info.title, info.identifier, e
+                );
                 String::new()
             }),
             info,
             plugin_info: Empty,
+            user_data: None,
         }
     }
 
@@ -392,7 +412,9 @@ impl SoundCloud {
         }
 
         if !response.status().is_success() {
-            return Err(ResolverError::FailedStatusCode(response.status().to_string()));
+            return Err(ResolverError::FailedStatusCode(
+                response.status().to_string(),
+            ));
         }
 
         let track: Track = response.json().await?;
@@ -411,7 +433,9 @@ impl SoundCloud {
             .await?;
 
         if !response.status().is_success() {
-            return Err(ResolverError::FailedStatusCode(response.status().to_string()));
+            return Err(ResolverError::FailedStatusCode(
+                response.status().to_string(),
+            ));
         }
 
         let playlist: Playlist = response.json().await?;
@@ -467,7 +491,10 @@ impl SoundCloud {
         })))
     }
 
-    async fn select_transcoding(&self, track: &Track) -> Result<(String, String, String), ResolverError> {
+    async fn select_transcoding(
+        &self,
+        track: &Track,
+    ) -> Result<(String, String, String), ResolverError> {
         let transcodings = track
             .media
             .as_ref()
@@ -476,22 +503,22 @@ impl SoundCloud {
             .as_slice();
 
         if transcodings.is_empty() {
-            return Err(ResolverError::MissingRequiredData("No transcodings available"));
+            return Err(ResolverError::MissingRequiredData(
+                "No transcodings available",
+            ));
         }
 
-        let progressive_mp3 = transcodings.iter().find(|t| {
-            t.format.protocol == "progressive" 
-                && t.format.mime_type.contains("mpeg")
-        });
+        let progressive_mp3 = transcodings
+            .iter()
+            .find(|t| t.format.protocol == "progressive" && t.format.mime_type.contains("mpeg"));
 
-        let progressive_aac = transcodings.iter().find(|t| {
-            t.format.protocol == "progressive" 
-                && t.format.mime_type.contains("aac")
-        });
+        let progressive_aac = transcodings
+            .iter()
+            .find(|t| t.format.protocol == "progressive" && t.format.mime_type.contains("aac"));
 
-        let any_progressive = transcodings.iter().find(|t| {
-            t.format.protocol == "progressive"
-        });
+        let any_progressive = transcodings
+            .iter()
+            .find(|t| t.format.protocol == "progressive");
 
         let hls_aac_high = transcodings.iter().find(|t| {
             t.format.protocol == "hls"
@@ -506,9 +533,7 @@ impl SoundCloud {
                 && (t.format.mime_type.contains("aac") || t.format.mime_type.contains("mp4"))
         });
 
-        let any_hls = transcodings.iter().find(|t| {
-            t.format.protocol == "hls"
-        });
+        let any_hls = transcodings.iter().find(|t| t.format.protocol == "hls");
         let selected = progressive_mp3
             .or(progressive_aac)
             .or(any_progressive)
@@ -556,11 +581,7 @@ impl SoundCloud {
         let format = if mime_type.contains("mpeg") {
             "mp3"
         } else if mime_type.contains("aac") || mime_type.contains("mp4") {
-            if protocol == "hls" {
-                "aac_hls"
-            } else {
-                "m4a"
-            }
+            if protocol == "hls" { "aac_hls" } else { "m4a" }
         } else if mime_type.contains("opus") {
             "opus"
         } else {
@@ -590,7 +611,10 @@ impl Source for SoundCloud {
         if url.starts_with(self.search_prefix) {
             return Some(Query::Search(url.to_string()));
         }
-        if self.url_regex.is_match(url) || self.search_url_regex.is_match(url) || self.short_url_regex.is_match(url) {
+        if self.url_regex.is_match(url)
+            || self.search_url_regex.is_match(url)
+            || self.short_url_regex.is_match(url)
+        {
             return Some(Query::Url(url.to_string()));
         }
 
@@ -602,17 +626,24 @@ impl Source for SoundCloud {
             Query::Url(mut url) => {
                 let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
                 if self.short_url_regex.is_match(&url) {
-                    let response = self.client.get(&url)
+                    let response = self
+                        .client
+                        .get(&url)
                         .header(reqwest::header::USER_AGENT, user_agent)
-                        .send().await?;
-                    
+                        .send()
+                        .await?;
+
                     if !response.status().is_success() {
-                        return Err(ResolverError::FailedStatusCode(response.status().to_string()));
+                        return Err(ResolverError::FailedStatusCode(
+                            response.status().to_string(),
+                        ));
                     }
 
                     let final_url = response.url().to_string();
                     if final_url == url {
-                        return Err(ResolverError::MissingRequiredData("Short URL did not redirect"));
+                        return Err(ResolverError::MissingRequiredData(
+                            "Short URL did not redirect",
+                        ));
                     }
                     url = final_url;
                 }
@@ -642,12 +673,20 @@ impl Source for SoundCloud {
                     .query(&[("url", &url), ("client_id", &client_id)])
                     .send()
                     .await?;
-                if response.status() == reqwest::StatusCode::UNAUTHORIZED || response.status() == reqwest::StatusCode::FORBIDDEN {
+                if response.status() == reqwest::StatusCode::UNAUTHORIZED
+                    || response.status() == reqwest::StatusCode::FORBIDDEN
+                {
                     if self.config_client_id.is_some() {
-                        return Err(ResolverError::FailedStatusCode(format!("Configured client_id failed: {}", response.status())));
+                        return Err(ResolverError::FailedStatusCode(format!(
+                            "Configured client_id failed: {}",
+                            response.status()
+                        )));
                     }
 
-                    tracing::warn!("SoundCloud resolve failed with {}, retrying with new client_id", response.status());
+                    tracing::warn!(
+                        "SoundCloud resolve failed with {}, retrying with new client_id",
+                        response.status()
+                    );
                     {
                         let mut cache = self.client_id_cache.lock().await;
                         *cache = None;
@@ -719,4 +758,3 @@ impl Source for SoundCloud {
         }
     }
 }
-
