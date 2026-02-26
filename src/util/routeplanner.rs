@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::collections::HashSet;
@@ -82,8 +82,8 @@ pub struct RoutePlanner {
     excluded_ips: HashSet<IpAddr>,
     banned_ips: Arc<DashMap<String, BannedIp>>,
     banned_ip_cooldown: Duration,
-    current_index: AtomicUsize,
-    rotate_index: AtomicUsize,
+    current_index: AtomicU64,
+    rotate_index: AtomicU64,
 }
 
 struct IpBlock {
@@ -201,8 +201,8 @@ impl RoutePlanner {
             excluded_ips,
             banned_ips: Arc::new(DashMap::new()),
             banned_ip_cooldown,
-            current_index: AtomicUsize::new(0),
-            rotate_index: AtomicUsize::new(0),
+            current_index: AtomicU64::new(0),
+            rotate_index: AtomicU64::new(0),
         })
     }
 
@@ -248,7 +248,7 @@ impl RoutePlanner {
             let next_index = (index + offset) % total;
             if let Some(ip) = self.get_ip_from_global_index(next_index) {
                 if !self.is_banned(&ip) && !self.excluded_ips.contains(&ip) {
-                    self.current_index.store(next_index as usize, Ordering::Relaxed);
+                    self.current_index.store(next_index as u64, Ordering::Relaxed);
                     return Some(ip);
                 }
             }

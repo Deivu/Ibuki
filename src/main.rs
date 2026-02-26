@@ -30,8 +30,9 @@ use reqwest::{Client, ClientBuilder};
 use songbird::driver::Scheduler;
 use songbird::id::UserId;
 use std::env::set_var;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
+use moka::sync::Cache;
 use tokio::main;
 use tokio::net;
 use tokio::task::JoinSet;
@@ -74,9 +75,14 @@ static REQWEST: LazyLock<Client> = LazyLock::new(|| {
     create_reqwest_client(None)
 });
 
-static CLIENT_POOL: LazyLock<DashMap<std::net::IpAddr, Client>> = LazyLock::new(DashMap::new);
+static CLIENT_POOL: LazyLock<Cache<IpAddr, Client>> = LazyLock::new(|| {
+    Cache::builder()
+        .max_capacity(100)
+        .time_to_idle(Duration::from_secs(600))
+        .build()
+});
 
-fn create_reqwest_client(local_address: Option<std::net::IpAddr>) -> Client {
+fn create_reqwest_client(local_address: Option<IpAddr>) -> Client {
     let mut builder = ClientBuilder::new().default_headers(generate_headers().unwrap());
     if let Some(addr) = local_address {
         builder = builder.local_address(addr);
@@ -84,11 +90,11 @@ fn create_reqwest_client(local_address: Option<std::net::IpAddr>) -> Client {
     builder.build().expect("Failed to create reqwest client")
 }
 
-pub fn get_client() -> (Client, Option<std::net::IpAddr>) {
+pub fn get_client() -> (Client, Option<IpAddr>) {
     if let Some(planner) = &*ROUTE_PLANNER {
         if let Some(ip) = planner.get_next_ip() {
             if let Some(client) = CLIENT_POOL.get(&ip) {
-                return (client.clone(), Some(ip));
+                return (client, Some(ip));
             }
             let client = create_reqwest_client(Some(ip));
             CLIENT_POOL.insert(ip, client.clone());

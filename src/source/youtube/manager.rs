@@ -123,7 +123,10 @@ impl YouTubeManager {
 
                     match status {
                         Some("OK") | None => return Ok(response),
-                        Some(status) => debug!("Client {} failed for {}: PlayabilityStatus {}", client.name(), video_id, status),
+                        Some(status) => {
+                            debug!("Client {} failed for {}: PlayabilityStatus {}", client.name(), video_id, status);
+                            last_error = ResolverError::Custom(format!("PlayabilityStatus {} for video {}", status, video_id));
+                        }
                     }
                 },
                 Err(e) => last_error = e,
