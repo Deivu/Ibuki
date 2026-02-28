@@ -237,6 +237,14 @@ async fn main() {
             "/v{version}/sessions",
             routing::get(routes::endpoints::get_sessions),
         )
+        .route(
+            "/v{version}/sessions/{session_id}/players",
+            routing::get(routes::endpoints::get_all_players),
+        )
+        .route(
+            "/v{version}/stats",
+            routing::get(routes::endpoints::get_stats),
+        )
         .route_layer(
             ServiceBuilder::new()
                 .layer(from_fn(middlewares::version::check))

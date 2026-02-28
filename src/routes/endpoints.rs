@@ -192,6 +192,7 @@ pub async fn update_player(
         }
     }
 
+
     if !stopped {
         if let Some(pause) = update_player.paused {
             player.ask(Pause { pause }).await?;
@@ -426,7 +427,6 @@ pub async fn get_stats() -> Result<Response<Body>, EndpointError> {
         sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
         true,
     );
-
     let cpus = sys.cpus();
     let global_cpu: f32 = if cpus.is_empty() {
         0.0
@@ -485,6 +485,7 @@ pub async fn get_stats() -> Result<Response<Body>, EndpointError> {
     } else {
         None
     };
+
 
     let stats = crate::models::ApiStats {
         players: crate::SCHEDULER.total_tasks() as u32,
