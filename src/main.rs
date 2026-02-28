@@ -62,16 +62,19 @@ static SOURCES: LazyLock<DashMap<String, FixAsyncTraitSource>> = LazyLock::new(D
 static TASKS: LazyLock<TasksManager<String>> = LazyLock::new(TasksManager::default);
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 pub static ROUTE_PLANNER: LazyLock<Option<RoutePlanner>> = LazyLock::new(|| {
-    CONFIG
-        .route_planner
-        .as_ref()
-        .and_then(|config| match RoutePlanner::new(config) {
+    CONFIG.route_planner.as_ref().and_then(|config| {
+        if config.ip_blocks.is_empty() {
+            tracing::info!("RoutePlanner: ipBlocks is empty, disabling route planner.");
+            return None;
+        }
+        match RoutePlanner::new(config) {
             Ok(planner) => Some(planner),
             Err(e) => {
                 tracing::error!("Failed to initialize RoutePlanner: {}", e);
                 None
             }
-        })
+        }
+    })
 });
 static REQWEST: LazyLock<Client> = LazyLock::new(|| {
     create_reqwest_client(None).expect("Failed to initialize default REQWEST client")
@@ -199,6 +202,10 @@ async fn main() {
             routing::get(routes::endpoints::decode),
         )
         .route(
+            "/v{version}/decodetracks",
+            routing::post(routes::endpoints::decode_tracks),
+        )
+        .route(
             "/v{version}/loadtracks",
             routing::get(routes::endpoints::encode),
         )
@@ -216,7 +223,7 @@ async fn main() {
         )
         .route(
             "/v{version}/sessions/{session_id}",
-            routing::patch(routes::endpoints::update_session),
+            routing::patch(routes::endpoints::update_session).get(routes::endpoints::get_session),
         )
         .route(
             "/v{version}/sessions/{session_id}/players",
@@ -225,6 +232,10 @@ async fn main() {
         .route(
             "/v{version}/stats",
             routing::get(routes::endpoints::get_stats),
+        )
+        .route(
+            "/v{version}/sessions",
+            routing::get(routes::endpoints::get_sessions),
         )
         .route_layer(
             ServiceBuilder::new()

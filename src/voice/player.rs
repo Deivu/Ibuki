@@ -6,6 +6,7 @@ use crate::filters::source::{FilteredCompose, FilteredSource};
 use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty, LavalinkFilters};
 use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::PlayerError;
+use crate::util::frame_counter::FrameCounter;
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
@@ -66,6 +67,7 @@ pub struct Player {
     pub voice: ApiVoiceData,
     pub filters: LavalinkFilters,
     pub filter_chain: Arc<Mutex<FilterChain>>,
+    pub frame_counter: Arc<FrameCounter>,
     internal: PlayerInternal,
 }
 
@@ -129,6 +131,7 @@ impl Player {
             voice: options.server_update.clone().unwrap_or_default(),
             filters: Default::default(),
             filter_chain: Arc::new(Mutex::new(FilterChain::new(48000))),
+            frame_counter: Arc::new(FrameCounter::new()),
             internal: PlayerInternal {
                 actor_ref,
                 user_id: options.user_id,
@@ -150,6 +153,11 @@ impl Player {
     #[message]
     pub fn is_active(&self) -> bool {
         self.internal.active
+    }
+
+    #[message]
+    pub fn get_frame_counter(&self) -> Arc<FrameCounter> {
+        self.frame_counter.clone()
     }
 
     #[message]
@@ -338,6 +346,8 @@ impl Player {
 
         let track_handle = driver.play_only(track);
 
+        self.frame_counter.on_track_start();
+
         track_handle.add_event(
             Event::Track(TrackEvent::Play),
             PlayerEvent::new(
@@ -352,6 +362,16 @@ impl Player {
             Event::Track(TrackEvent::Pause),
             PlayerEvent::new(
                 Event::Track(TrackEvent::Pause),
+                self.guild_id,
+                self.internal.user_id,
+                self.internal.actor_ref.clone(),
+            ),
+        )?;
+
+        track_handle.add_event(
+            Event::Track(TrackEvent::Error),
+            PlayerEvent::new(
+                Event::Track(TrackEvent::Error),
                 self.guild_id,
                 self.internal.user_id,
                 self.internal.actor_ref.clone(),
@@ -436,7 +456,7 @@ impl Player {
             return;
         }
 
-        self.paused = paused;
+        self.paused = pause;
     }
 
     #[message]

@@ -13,7 +13,7 @@ use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::EndpointError;
 use crate::voice::manager::CreatePlayerOptions;
 use crate::voice::player::{
-    GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetFilters, SetVolume, Stop,
+    GetApiPlayerInfo, GetFrameCounter, IsActive, Pause, Play, Seek, SetFilters, SetVolume, Stop,
 };
 use crate::ws::client::{
     CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
@@ -110,30 +110,83 @@ pub async fn update_player(
         .ok_or(EndpointError::NoPlayerFound)?;
 
     let mut stopped = false;
-
+    let no_replace = query.no_replace.unwrap_or(false);
     let is_active = player.ask(IsActive).await?;
 
-    if let Some(encoded) = update_player
+    let encoded_to_play: Option<String> = if let Some(encoded) = update_player
         .track
         .as_ref()
-        .map(|track| track.encoded.clone())
+        .map(|t| t.encoded.clone())
+        .and_then(|v| {
+            if let Value::String(s) = v {
+                Some(s)
+            } else {
+                None
+            }
+        }) {
+        Some(encoded)
+    } else if let Some(identifier) = update_player
+        .track
+        .as_ref()
+        .and_then(|t| t.identifier.clone())
+        .or(update_player.identifier.clone())
     {
-        if !is_active || !query.no_replace.unwrap_or(false) {
-            match encoded {
-                Value::String(encoded) => {
-                    player
-                        .ask(Play {
-                            encoded,
-                            user_data: update_player
-                                .track
-                                .as_ref()
-                                .and_then(|t| t.user_data.clone()),
-                        })
-                        .await?;
-                }
-                _ => {
-                    player.ask(Stop).await?;
-                    stopped = true;
+        let mut resolved: Option<String> = None;
+        for source in SOURCES.iter() {
+            let Some(data) = source.to_inner_ref().parse_query(&identifier) else {
+                continue;
+            };
+            let result = source
+                .to_inner_ref()
+                .resolve(data)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(ApiTrackResult::Empty(None));
+
+            if let ApiTrackResult::Track(api_track) = result {
+                resolved = Some(api_track.encoded);
+                break;
+            }
+        }
+        resolved
+    } else if let Some(track) = update_player.track.as_ref() {
+        if let Value::Null = track.encoded {
+            player.ask(Stop).await?;
+            stopped = true;
+        }
+        None
+    } else {
+        None
+    };
+
+    if let Some(encoded) = encoded_to_play {
+        if !is_active || !no_replace {
+            player
+                .ask(Play {
+                    encoded,
+                    user_data: update_player
+                        .track
+                        .as_ref()
+                        .and_then(|t| t.user_data.clone()),
+                })
+                .await?;
+
+            if let Some(end_ms) = update_player.end_time {
+                let player_ref = player.clone();
+                if let Ok(Some(handle)) = player_ref.ask(crate::voice::player::GetTrackHandle).await
+                {
+                    let track_uuid = handle.uuid();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(end_ms as u64)).await;
+                        if let Ok(Some(current_handle)) =
+                            player_ref.ask(crate::voice::player::GetTrackHandle).await
+                        {
+                            if current_handle.uuid() == track_uuid {
+                                player_ref.ask(Stop).await.ok();
+                            }
+                        }
+                    });
                 }
             }
         }
@@ -214,6 +267,26 @@ pub async fn update_session(
     Ok(Response::new(Body::from(string)))
 }
 
+#[tracing::instrument]
+pub async fn get_session(
+    Path(SessionMethodsPath { session_id }): Path<SessionMethodsPath>,
+) -> Result<Response<Body>, EndpointError> {
+    let client = get_client(session_id.clone())
+        .await
+        .ok_or(EndpointError::NoWebsocketClientFound)?;
+
+    let data = client.ask(GetWebsocketInfo).await?;
+
+    let info = ApiSessionInfo {
+        resuming_key: session_id,
+        timeout: data.timeout as u16,
+    };
+
+    let string = serde_json::to_string_pretty(&info)?;
+
+    Ok(Response::new(Body::from(string)))
+}
+
 pub async fn decode(query: Query<DecodeQueryString>) -> Result<Response<Body>, EndpointError> {
     let track = decode_track(&query.track).or_else(|_| decode_base64(&query.track))?;
 
@@ -227,6 +300,43 @@ pub async fn decode(query: Query<DecodeQueryString>) -> Result<Response<Body>, E
     let string = serde_json::to_string_pretty(&track)?;
 
     Ok(Response::new(Body::from(string)))
+}
+
+#[derive(serde::Deserialize)]
+pub struct DecodeTracksBody {
+    pub tracks: Vec<String>,
+}
+
+pub async fn decode_tracks(
+    Json(body): Json<DecodeTracksBody>,
+) -> Result<Response<Body>, EndpointError> {
+    if body.tracks.is_empty() {
+        return Err(EndpointError::FailedMessage(
+            "No tracks to decode provided".to_string(),
+        ));
+    }
+
+    let decoded: Vec<ApiTrack> = body
+        .tracks
+        .into_iter()
+        .filter_map(|encoded| {
+            let info = decode_track(&encoded)
+                .or_else(|_| decode_base64(&encoded))
+                .ok()?;
+            Some(ApiTrack {
+                encoded,
+                info,
+                plugin_info: Empty,
+                user_data: None,
+            })
+        })
+        .collect();
+
+    let string = serde_json::to_string_pretty(&decoded)?;
+    Response::builder()
+        .header("Content-Type", "application/json")
+        .body(Body::from(string))
+        .map_err(|e| EndpointError::FailedMessage(e.to_string()))
 }
 
 #[tracing::instrument]
@@ -311,25 +421,70 @@ pub async fn version() -> Response<Body> {
 pub async fn get_stats() -> Result<Response<Body>, EndpointError> {
     let mut sys = crate::SYSTEM.lock().await;
     sys.refresh_cpu_usage();
+    let pid = std::process::id();
+    sys.refresh_processes(
+        sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+        true,
+    );
+
     let cpus = sys.cpus();
     let global_cpu: f32 = if cpus.is_empty() {
         0.0
     } else {
-        cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32
+        cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32 / 100.0
     };
 
     let cores = perf_monitor::cpu::processor_numbers().unwrap_or(1);
-    let process_cpu = if let Ok(mut stat) = perf_monitor::cpu::ProcessStat::cur() {
-        stat.cpu().unwrap_or(0.0) / cores as f64
+    let process_cpu = if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
+        process.cpu_usage() as f64 / 100.0 / cores as f64
     } else {
         0.0
     };
 
+    sys.refresh_memory();
+    let free = sys.available_memory();
+    let reservable = sys.total_memory();
+
     let used = crate::ALLOCATOR.allocated() as u64;
-    let free = crate::ALLOCATOR.remaining() as u64;
 
     let process_memory_info = perf_monitor::mem::get_process_memory_info()
         .map_err(|e| EndpointError::FailedMessage(format!("Failed to get memory info: {}", e)))?;
+
+    let mut player_count: u64 = 0;
+    let mut total_sent: u64 = 0;
+    let mut total_nulled: u64 = 0;
+    for client_ref in crate::CLIENTS.iter() {
+        if let Ok(players) = client_ref.ask(crate::ws::client::GetAllPlayers).await {
+            for (_, player_ref) in players {
+                if player_ref.ask(IsActive).await.unwrap_or(false) {
+                    if let Ok(counter) = player_ref.ask(GetFrameCounter).await {
+                        if counter.is_data_usable() {
+                            player_count += 1;
+                            total_sent +=
+                                counter.last_sent.load(std::sync::atomic::Ordering::Relaxed);
+                            total_nulled += counter
+                                .last_nulled
+                                .load(std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let frame_stats = if player_count > 0 {
+        let avg_sent = total_sent / player_count;
+        let avg_nulled = total_nulled / player_count;
+        let avg_deficit = (crate::util::frame_counter::EXPECTED_FRAMES_PER_MIN as i64)
+            - ((total_sent + total_nulled) / player_count) as i64;
+        Some(crate::models::ApiFrameStats {
+            sent: avg_sent,
+            nulled: avg_nulled as u32,
+            deficit: avg_deficit as i32,
+        })
+    } else {
+        None
+    };
 
     let stats = crate::models::ApiStats {
         players: crate::SCHEDULER.total_tasks() as u32,
@@ -339,21 +494,21 @@ pub async fn get_stats() -> Result<Response<Body>, EndpointError> {
             free,
             used,
             allocated: process_memory_info.resident_set_size,
-            reservable: process_memory_info.virtual_memory_size,
+            reservable,
         },
         cpu: crate::models::ApiCpu {
             cores: cores as u32,
             system_load: global_cpu as f64,
             lavalink_load: process_cpu,
         },
-        frame_stats: None,
+        frame_stats,
     };
 
     let string = serde_json::to_string_pretty(&stats)?;
-    Ok(Response::builder()
+    Response::builder()
         .header("Content-Type", "application/json")
         .body(Body::from(string))
-        .unwrap())
+        .map_err(|e| EndpointError::FailedMessage(e.to_string()))
 }
 
 pub async fn get_all_players(
@@ -378,8 +533,26 @@ pub async fn get_all_players(
     }
 
     let string = serde_json::to_string_pretty(&player_list)?;
-    Ok(Response::builder()
+    Response::builder()
         .header("Content-Type", "application/json")
         .body(Body::from(string))
-        .unwrap())
+        .map_err(|e| EndpointError::FailedMessage(e.to_string()))
+}
+
+pub async fn get_sessions() -> Result<Response<Body>, EndpointError> {
+    let mut sessions = Vec::new();
+    for client_ref in crate::CLIENTS.iter() {
+        if let Ok(data) = client_ref.ask(GetWebsocketInfo).await {
+            sessions.push(serde_json::json!({
+                "resuming": data.resume,
+                "timeout": data.timeout,
+                "sessionId": data.session_id,
+            }));
+        }
+    }
+    let string = serde_json::to_string_pretty(&sessions)?;
+    Response::builder()
+        .header("Content-Type", "application/json")
+        .body(Body::from(string))
+        .map_err(|e| EndpointError::FailedMessage(e.to_string()))
 }

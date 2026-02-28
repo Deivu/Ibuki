@@ -1,6 +1,6 @@
 use super::player::{
-    Destroy, GetApiPlayerInfo, GetDriver, GetTrackHandle, Player, PlayerUpdate,
-    SendToPlayerWebsocket, Stop, UpdateFromInternalEvent,
+    Destroy, GetApiPlayerInfo, GetDriver, GetFrameCounter, GetTrackHandle, IsActive, Player,
+    PlayerUpdate, SendToPlayerWebsocket, Stop, UpdateFromInternalEvent,
 };
 use crate::models::{
     ApiNodeMessage, ApiPlayerEvents, ApiPlayerUpdate, ApiTrack, ApiTrackEnd, ApiTrackStart,
@@ -138,15 +138,20 @@ async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult)
 
     match player_event.event {
         Event::Periodic(_, _) => {
-            let state = player_event
-                .get_track_handle()
-                .await?
-                .get_info()
-                .await
-                .ok()?;
+            if let Ok(counter) = actor_ref.ask(GetFrameCounter).await {
+                let is_playing = actor_ref.ask(IsActive).await.unwrap_or(false);
+                counter.on_periodic(is_playing);
+            }
+
+            let Some(handle) = player_event.get_track_handle().await else {
+                return Some(());
+            };
+            let Some(state) = handle.get_info().await.ok() else {
+                return Some(());
+            };
 
             let updates: Vec<PlayerUpdate> = vec![
-                PlayerUpdate::Volume(state.volume as u32),
+                PlayerUpdate::Volume((state.volume * 100.0).clamp(0.0, 1000.0).round() as u32),
                 PlayerUpdate::Position(state.position.as_millis() as u32),
             ];
 
@@ -172,7 +177,7 @@ async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult)
             Some(())
         }
         Event::Track(event) => {
-            let DataResult::Track(_, track) = data_result else {
+            let DataResult::Track(state, track) = data_result else {
                 tracing::warn!("Expected DataResult::Track but got a different thing");
                 return None;
             };
@@ -205,16 +210,48 @@ async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult)
                         .await
                         .ok()?;
                     actor_ref.ask(Stop).await.ok()?;
+                    if let Ok(counter) = actor_ref.ask(GetFrameCounter).await {
+                        counter.on_track_end();
+                    }
+
+                    // Calculate reason based on how close to the end we were
+                    let reason = if state.position.as_millis() as u64 + 1000 >= track.info.length {
+                        "FINISHED"
+                    } else {
+                        "STOPPED"
+                    };
 
                     let event = ApiTrackEnd {
                         guild_id: player_event.guild_id.0.get(),
                         track: track.as_ref().clone(),
-                        // todo: reflect reason for this end
-                        reason: String::from("finished"),
+                        reason: reason.to_string(),
                     };
 
                     let serialized = serde_json::to_string(&ApiNodeMessage::Event(Box::new(
                         ApiPlayerEvents::TrackEndEvent(event),
+                    )))
+                    .ok()?;
+
+                    player_event
+                        .send_to_websocket(Message::Text(Utf8Bytes::from(serialized)))
+                        .await;
+
+                    Some(())
+                }
+                TrackEvent::Error => {
+                    let event = crate::models::ApiTrackException {
+                        guild_id: player_event.guild_id.0.get(),
+                        track: track.as_ref().clone(),
+                        exception: crate::models::ApiException {
+                            guild_id: player_event.guild_id.0.get(),
+                            message: Some("Track encountered an error during playback".to_string()),
+                            severity: "common".to_string(),
+                            cause: "UnknownError".to_string(),
+                        },
+                    };
+
+                    let serialized = serde_json::to_string(&ApiNodeMessage::Event(Box::new(
+                        ApiPlayerEvents::TrackExceptionEvent(event),
                     )))
                     .ok()?;
 
@@ -232,10 +269,9 @@ async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult)
                         .await
                         .ok()?;
                     // ensures playable is only sent to client once
-                    if player_event.fired.load(Ordering::Acquire) {
+                    if player_event.fired.swap(true, Ordering::Release) {
                         return None;
                     }
-                    player_event.fired.swap(true, Ordering::Release);
 
                     actor_ref
                         .ask(UpdateFromInternalEvent {
