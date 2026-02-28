@@ -47,6 +47,7 @@ struct PlayerInternal {
     pub websocket: WeakActorRef<WebSocketClient>,
     pub driver: Option<Driver>,
     pub handle: Option<TrackHandle>,
+    pub end_time_task: Option<tokio::task::JoinHandle<()>>,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
 }
 
@@ -139,6 +140,7 @@ impl Player {
                 websocket: options.websocket,
                 driver: Default::default(),
                 handle: None,
+                end_time_task: None,
                 players: options.players,
             },
         };
@@ -163,6 +165,14 @@ impl Player {
     #[message]
     pub fn get_api_player_info(&self) -> ApiPlayer {
         self.into()
+    }
+
+    #[message]
+    pub fn set_end_time_task(&mut self, task: Option<tokio::task::JoinHandle<()>>) {
+        if let Some(old_task) = self.internal.end_time_task.take() {
+            old_task.abort();
+        }
+        self.internal.end_time_task = task;
     }
 
     #[message]

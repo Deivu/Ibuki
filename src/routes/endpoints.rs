@@ -172,22 +172,32 @@ pub async fn update_player(
                 })
                 .await?;
 
+            let track_uuid = player.ask(crate::voice::player::GetTrackHandle).await.ok().flatten().map(|h| h.uuid());
             if let Some(end_ms) = update_player.end_time {
-                let player_ref = player.clone();
-                if let Ok(Some(handle)) = player_ref.ask(crate::voice::player::GetTrackHandle).await
-                {
-                    let track_uuid = handle.uuid();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(end_ms as u64)).await;
-                        if let Ok(Some(current_handle)) =
-                            player_ref.ask(crate::voice::player::GetTrackHandle).await
-                        {
-                            if current_handle.uuid() == track_uuid {
-                                player_ref.ask(Stop).await.ok();
+                let current_position = player.ask(crate::voice::player::GetApiPlayerInfo).await.map(|p| p.state.position).unwrap_or(0);
+                let remaining_ms = (end_ms as u64).saturating_sub(current_position as u64);
+
+                if let Some(uuid) = track_uuid {
+                    if remaining_ms == 0 {
+                        player.ask(Stop).await.ok();
+                        let _ = player.ask(crate::voice::player::SetEndTimeTask { task: None }).await;
+                    } else {
+                        let player_ref = player.clone();
+                        let task = tokio::spawn(async move {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(remaining_ms)).await;
+                            if let Ok(Some(current_handle)) =
+                                player_ref.ask(crate::voice::player::GetTrackHandle).await
+                            {
+                                if current_handle.uuid() == uuid {
+                                    player_ref.ask(Stop).await.ok();
+                                }
                             }
-                        }
-                    });
+                        });
+                        let _ = player.ask(crate::voice::player::SetEndTimeTask { task: Some(task) }).await;
+                    }
                 }
+            } else {
+                let _ = player.ask(crate::voice::player::SetEndTimeTask { task: None }).await;
             }
         }
     }
@@ -320,18 +330,18 @@ pub async fn decode_tracks(
     let decoded: Vec<ApiTrack> = body
         .tracks
         .into_iter()
-        .filter_map(|encoded| {
+        .map(|encoded| {
             let info = decode_track(&encoded)
                 .or_else(|_| decode_base64(&encoded))
-                .ok()?;
-            Some(ApiTrack {
+                .map_err(|e| EndpointError::FailedMessage(format!("Failed to decode track {}: {}", encoded, e)))?;
+            Ok(ApiTrack {
                 encoded,
                 info,
                 plugin_info: Empty,
                 user_data: None,
             })
         })
-        .collect();
+        .collect::<Result<Vec<ApiTrack>, EndpointError>>()?;
 
     let string = serde_json::to_string_pretty(&decoded)?;
     Response::builder()
@@ -420,32 +430,36 @@ pub async fn version() -> Response<Body> {
 }
 
 pub async fn get_stats() -> Result<Response<Body>, EndpointError> {
-    let mut sys = crate::SYSTEM.lock().await;
-    sys.refresh_cpu_usage();
-    let pid = std::process::id();
-    sys.refresh_processes(
-        sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
-        true,
-    );
-    let cpus = sys.cpus();
-    let global_cpu: f32 = if cpus.is_empty() {
-        0.0
-    } else {
-        cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32 / 100.0
-    };
-
     let cores = perf_monitor::cpu::processor_numbers().unwrap_or(1);
-    let process_cpu = if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
-        process.cpu_usage() as f64 / 100.0 / cores as f64
-    } else {
-        0.0
+    let (global_cpu, process_cpu, free, reservable, used) = {
+        let mut sys = crate::SYSTEM.lock().await;
+        sys.refresh_cpu_usage();
+        let pid = std::process::id();
+        sys.refresh_processes(
+            sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+            true,
+        );
+        let cpus = sys.cpus();
+        let global_cpu: f32 = if cpus.is_empty() {
+            0.0
+        } else {
+            cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32 / 100.0
+        };
+
+        let process_cpu = if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
+            process.cpu_usage() as f64 / 100.0 / cores as f64
+        } else {
+            0.0
+        };
+
+        sys.refresh_memory();
+        let free = sys.available_memory();
+        let reservable = sys.total_memory();
+
+        let used = crate::ALLOCATOR.allocated() as u64;
+
+        (global_cpu, process_cpu, free, reservable, used)
     };
-
-    sys.refresh_memory();
-    let free = sys.available_memory();
-    let reservable = sys.total_memory();
-
-    let used = crate::ALLOCATOR.allocated() as u64;
 
     let process_memory_info = perf_monitor::mem::get_process_memory_info()
         .map_err(|e| EndpointError::FailedMessage(format!("Failed to get memory info: {}", e)))?;

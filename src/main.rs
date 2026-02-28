@@ -90,7 +90,9 @@ static CLIENT_POOL: LazyLock<Cache<IpAddr, Client>> = LazyLock::new(|| {
 fn create_reqwest_client(
     local_address: Option<IpAddr>,
 ) -> Result<Client, Box<dyn std::error::Error + Send + Sync>> {
-    let mut builder = ClientBuilder::new().default_headers(generate_headers()?);
+    let mut builder = ClientBuilder::new()
+        .default_headers(generate_headers()?)
+        .timeout(Duration::from_secs(30));
     if let Some(addr) = local_address {
         builder = builder.local_address(addr);
     }
@@ -284,7 +286,7 @@ async fn create_tasks() {
                 if cpus.is_empty() {
                     0.0
                 } else {
-                    cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32
+                    cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32 / 100.0
                 }
             };
 
@@ -300,7 +302,7 @@ async fn create_tasks() {
             let Ok(usage) = stat.cpu() else {
                 return;
             };
-            let process_cpu = usage / cores as f64;
+            let process_cpu = usage / 100.0 / cores as f64;
 
             let used = ALLOCATOR.allocated() as u64;
             let free = ALLOCATOR.remaining() as u64;
