@@ -87,6 +87,10 @@ impl Actor for Player {
         _: WeakActorRef<Self>,
         reason: ActorStopReason,
     ) -> Result<(), Self::Error> {
+        if let Some(task) = self.internal.end_time_task.take() {
+            task.abort();
+        }
+
         if let Some(driver) = self.internal.driver.take().as_mut() {
             driver.stop();
             driver.leave();
@@ -306,6 +310,10 @@ impl Player {
 
     #[message]
     pub async fn disconnect(&mut self) {
+        if let Some(task) = self.internal.end_time_task.take() {
+            task.abort();
+        }
+
         if let Some(driver) = self.internal.driver.take().as_mut() {
             driver.stop();
             driver.leave();
@@ -414,7 +422,11 @@ impl Player {
     }
 
     #[message]
-    pub async fn stop(&self) {
+    pub async fn stop(&mut self) {
+        if let Some(task) = self.internal.end_time_task.take() {
+            task.abort();
+        }
+
         let Some(handle) = self.internal.handle.as_ref() else {
             return;
         };

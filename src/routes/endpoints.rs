@@ -13,7 +13,8 @@ use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::EndpointError;
 use crate::voice::manager::CreatePlayerOptions;
 use crate::voice::player::{
-    GetApiPlayerInfo, GetFrameCounter, IsActive, Pause, Play, Seek, SetFilters, SetVolume, Stop,
+    GetApiPlayerInfo, GetFrameCounter, GetTrackHandle, IsActive, Pause, Play, Seek, SetEndTimeTask,
+    SetFilters, SetVolume, Stop,
 };
 use crate::ws::client::{
     CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
@@ -27,6 +28,9 @@ use dashmap::mapref::multiple::RefMulti;
 use kameo::actor::ActorRef;
 use serde_json::Value;
 use songbird::id::{GuildId, UserId};
+use std::time::Duration;
+use tokio::spawn;
+use tokio::time::sleep;
 
 async fn get_client(
     session_id: String,
@@ -172,33 +176,7 @@ pub async fn update_player(
                 })
                 .await?;
 
-            let track_uuid = player.ask(crate::voice::player::GetTrackHandle).await.ok().flatten().map(|h| h.uuid());
-            if let Some(end_ms) = update_player.end_time {
-                let current_position = player.ask(crate::voice::player::GetApiPlayerInfo).await.map(|p| p.state.position).unwrap_or(0);
-                let remaining_ms = (end_ms as u64).saturating_sub(current_position as u64);
 
-                if let Some(uuid) = track_uuid {
-                    if remaining_ms == 0 {
-                        player.ask(Stop).await.ok();
-                        let _ = player.ask(crate::voice::player::SetEndTimeTask { task: None }).await;
-                    } else {
-                        let player_ref = player.clone();
-                        let task = tokio::spawn(async move {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(remaining_ms)).await;
-                            if let Ok(Some(current_handle)) =
-                                player_ref.ask(crate::voice::player::GetTrackHandle).await
-                            {
-                                if current_handle.uuid() == uuid {
-                                    player_ref.ask(Stop).await.ok();
-                                }
-                            }
-                        });
-                        let _ = player.ask(crate::voice::player::SetEndTimeTask { task: Some(task) }).await;
-                    }
-                }
-            } else {
-                let _ = player.ask(crate::voice::player::SetEndTimeTask { task: None }).await;
-            }
         }
     }
 
@@ -223,6 +201,34 @@ pub async fn update_player(
         if let Some(filters) = update_player.filters {
             player.ask(SetFilters { filters }).await?;
         }
+    }
+
+    let track_uuid = player.ask(GetTrackHandle).await.ok().flatten().map(|h| h.uuid());
+    if let Some(end_ms) = update_player.end_time {
+        let current_position = player.ask(GetApiPlayerInfo).await.map(|p| p.state.position).unwrap_or(0);
+        let remaining_ms = (end_ms as u64).saturating_sub(current_position as u64);
+
+        if let Some(uuid) = track_uuid {
+            if remaining_ms == 0 {
+                player.ask(Stop).await.ok();
+                let _ = player.ask(SetEndTimeTask { task: None }).await;
+            } else {
+                let player_ref = player.clone();
+                let task = spawn(async move {
+                    sleep(Duration::from_millis(remaining_ms)).await;
+                    if let Ok(Some(current_handle)) =
+                        player_ref.ask(GetTrackHandle).await
+                    {
+                        if current_handle.uuid() == uuid {
+                            player_ref.ask(Stop).await.ok();
+                        }
+                    }
+                });
+                let _ = player.ask(SetEndTimeTask { task: Some(task) }).await;
+            }
+        }
+    } else {
+        let _ = player.ask(SetEndTimeTask { task: None }).await;
     }
 
     let data = player.ask(GetApiPlayerInfo).await?;
