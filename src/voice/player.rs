@@ -22,7 +22,7 @@ use songbird::Driver;
 use songbird::Event;
 use songbird::TrackEvent;
 use songbird::driver::Bitrate;
-use songbird::id::{GuildId, UserId};
+use songbird::id::{ChannelId, GuildId, UserId};
 use songbird::input::{AudioStream, File, Input, LiveInput};
 use songbird::tracks::{Track, TrackHandle};
 use std::sync::{Arc, Mutex};
@@ -196,7 +196,7 @@ impl Player {
         config: Option<SongbirdConfig>,
     ) -> Result<(), PlayerError> {
         let connection = ConnectionInfo {
-            channel_id: None,
+            channel_id: Some(ChannelId::from(std::num::NonZeroU64::new(1).unwrap())),
             endpoint: server_update.endpoint.to_owned(),
             guild_id: self.guild_id,
             session_id: server_update.session_id.to_owned(),

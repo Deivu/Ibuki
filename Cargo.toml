@@ -62,7 +62,8 @@ version = "^1.48.0"
 features = ["tracing", "macros", "signal", "rt-multi-thread"]
 
 [dependencies.songbird]
-git = "https://github.com/serenity-rs/songbird.git"
+git = "https://github.com/beerpsi-forks/songbird.git"
+branch = "davey"
 default-features = false
 features = ["driver", "tungstenite", "rustls"]
 

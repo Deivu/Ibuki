@@ -113,6 +113,7 @@ impl YouTubeManager {
     }
 
     pub async fn search(&self, query: &str) -> Result<Value, ResolverError> {
+        let (http_client, bound_ip) = crate::get_client();
         let client_name = self
             .search_clients
             .first()
@@ -134,6 +135,8 @@ impl YouTubeManager {
                 None,
                 visitor_data.as_deref(),
                 oauth_token.as_deref(),
+                &http_client,
+                bound_ip,
             )
             .await
     }
@@ -148,6 +151,7 @@ impl YouTubeManager {
         };
         let oauth_token = self.oauth.lock().await.get_access_token();
 
+        let (http_client, bound_ip) = crate::get_client();
         for client_name in &self.resolve_clients {
             let Some(client) = self.get_innertube_client(client_name) else {
                 continue;
@@ -165,6 +169,8 @@ impl YouTubeManager {
                     po_token.as_deref(),
                     oauth_token.as_deref(),
                     None,
+                    &http_client,
+                    bound_ip,
                 )
                 .await
             {
@@ -197,7 +203,7 @@ impl YouTubeManager {
         Err(last_error)
     }
 
-    pub async fn make_playable(&self, video_id: &str) -> Result<String, ResolverError> {
+    pub async fn make_playable(&self, video_id: &str) -> Result<(String, Client), ResolverError> {
         let mut last_error =
             ResolverError::Custom("No clients configured for playback".to_string());
 
@@ -207,6 +213,8 @@ impl YouTubeManager {
             (sabr.get_visitor_data(), sabr.get_po_token())
         };
         let oauth_token = self.oauth.lock().await.get_access_token();
+
+        let (http_client, bound_ip) = crate::get_client();
 
         for client_name in &self.playback_clients {
             let Some(client) = self.get_innertube_client(client_name) else {
@@ -224,6 +232,8 @@ impl YouTubeManager {
                     po_token.as_deref(),
                     oauth_token.as_deref(),
                     None,
+                    &http_client,
+                    bound_ip,
                 )
                 .await
             {
@@ -263,7 +273,7 @@ impl YouTubeManager {
             if let Some(fmt) = audio_format {
                 if let Some(url) = fmt.get("url").and_then(|u| u.as_str()) {
                     debug!("Found direct URL with {}", client.name());
-                    return Ok(url.to_string());
+                    return Ok((url.to_string(), http_client));
                 } else if let Some(sig_cipher) = fmt.get("signatureCipher").and_then(|s| s.as_str())
                 {
                     debug!(
@@ -286,7 +296,7 @@ impl YouTubeManager {
                             )
                             .await
                         {
-                            Ok(deciphered) => return Ok(deciphered),
+                            Ok(deciphered) => return Ok((deciphered, http_client)),
                             Err(e) => {
                                 warn!("Cipher resolution failed: {:?}", e);
                                 continue;
