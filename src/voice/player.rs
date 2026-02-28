@@ -6,6 +6,7 @@ use crate::filters::source::{FilteredCompose, FilteredSource};
 use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty, LavalinkFilters};
 use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::PlayerError;
+use crate::util::frame_counter::FrameCounter;
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
@@ -46,6 +47,7 @@ struct PlayerInternal {
     pub websocket: WeakActorRef<WebSocketClient>,
     pub driver: Option<Driver>,
     pub handle: Option<TrackHandle>,
+    pub end_time_task: Option<tokio::task::JoinHandle<()>>,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
 }
 
@@ -66,6 +68,7 @@ pub struct Player {
     pub voice: ApiVoiceData,
     pub filters: LavalinkFilters,
     pub filter_chain: Arc<Mutex<FilterChain>>,
+    pub frame_counter: Arc<FrameCounter>,
     internal: PlayerInternal,
 }
 
@@ -84,6 +87,10 @@ impl Actor for Player {
         _: WeakActorRef<Self>,
         reason: ActorStopReason,
     ) -> Result<(), Self::Error> {
+        if let Some(task) = self.internal.end_time_task.take() {
+            task.abort();
+        }
+
         if let Some(driver) = self.internal.driver.take().as_mut() {
             driver.stop();
             driver.leave();
@@ -129,6 +136,7 @@ impl Player {
             voice: options.server_update.clone().unwrap_or_default(),
             filters: Default::default(),
             filter_chain: Arc::new(Mutex::new(FilterChain::new(48000))),
+            frame_counter: Arc::new(FrameCounter::new()),
             internal: PlayerInternal {
                 actor_ref,
                 user_id: options.user_id,
@@ -136,6 +144,7 @@ impl Player {
                 websocket: options.websocket,
                 driver: Default::default(),
                 handle: None,
+                end_time_task: None,
                 players: options.players,
             },
         };
@@ -153,8 +162,21 @@ impl Player {
     }
 
     #[message]
+    pub fn get_frame_counter(&self) -> Arc<FrameCounter> {
+        self.frame_counter.clone()
+    }
+
+    #[message]
     pub fn get_api_player_info(&self) -> ApiPlayer {
         self.into()
+    }
+
+    #[message]
+    pub fn set_end_time_task(&mut self, task: Option<tokio::task::JoinHandle<()>>) {
+        if let Some(old_task) = self.internal.end_time_task.take() {
+            old_task.abort();
+        }
+        self.internal.end_time_task = task;
     }
 
     #[message]
@@ -288,6 +310,10 @@ impl Player {
 
     #[message]
     pub async fn disconnect(&mut self) {
+        if let Some(task) = self.internal.end_time_task.take() {
+            task.abort();
+        }
+
         if let Some(driver) = self.internal.driver.take().as_mut() {
             driver.stop();
             driver.leave();
@@ -338,6 +364,8 @@ impl Player {
 
         let track_handle = driver.play_only(track);
 
+        self.frame_counter.on_track_start();
+
         track_handle.add_event(
             Event::Track(TrackEvent::Play),
             PlayerEvent::new(
@@ -352,6 +380,16 @@ impl Player {
             Event::Track(TrackEvent::Pause),
             PlayerEvent::new(
                 Event::Track(TrackEvent::Pause),
+                self.guild_id,
+                self.internal.user_id,
+                self.internal.actor_ref.clone(),
+            ),
+        )?;
+
+        track_handle.add_event(
+            Event::Track(TrackEvent::Error),
+            PlayerEvent::new(
+                Event::Track(TrackEvent::Error),
                 self.guild_id,
                 self.internal.user_id,
                 self.internal.actor_ref.clone(),
@@ -384,7 +422,11 @@ impl Player {
     }
 
     #[message]
-    pub async fn stop(&self) {
+    pub async fn stop(&mut self) {
+        if let Some(task) = self.internal.end_time_task.take() {
+            task.abort();
+        }
+
         let Some(handle) = self.internal.handle.as_ref() else {
             return;
         };
@@ -436,7 +478,7 @@ impl Player {
             return;
         }
 
-        self.paused = paused;
+        self.paused = pause;
     }
 
     #[message]
