@@ -8,13 +8,14 @@ use crate::SOURCES;
 use crate::models::{
     ApiPlayerOptions, ApiSessionBody, ApiSessionInfo, ApiTrack, ApiTrackResult, Empty,
 };
+use crate::util::api_stats;
 use crate::util::converter::numbers::FromU64;
 use crate::util::decoder::{decode_base64, decode_track};
 use crate::util::errors::EndpointError;
 use crate::voice::manager::CreatePlayerOptions;
 use crate::voice::player::{
-    GetApiPlayerInfo, GetFrameCounter, GetTrackHandle, IsActive, Pause, Play, Seek, SetEndTimeTask,
-    SetFilters, SetVolume, Stop,
+    GetApiPlayerInfo, GetTrackHandle, IsActive, Pause, Play, Seek, SetEndTimeTask, SetFilters,
+    SetVolume, Stop,
 };
 use crate::ws::client::{
     CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
@@ -175,11 +176,8 @@ pub async fn update_player(
                         .and_then(|t| t.user_data.clone()),
                 })
                 .await?;
-
-
         }
     }
-
 
     if !stopped {
         if let Some(pause) = update_player.paused {
@@ -203,9 +201,18 @@ pub async fn update_player(
         }
     }
 
-    let track_uuid = player.ask(GetTrackHandle).await.ok().flatten().map(|h| h.uuid());
+    let track_uuid = player
+        .ask(GetTrackHandle)
+        .await
+        .ok()
+        .flatten()
+        .map(|h| h.uuid());
     if let Some(end_ms) = update_player.end_time {
-        let current_position = player.ask(GetApiPlayerInfo).await.map(|p| p.state.position).unwrap_or(0);
+        let current_position = player
+            .ask(GetApiPlayerInfo)
+            .await
+            .map(|p| p.state.position)
+            .unwrap_or(0);
         let remaining_ms = (end_ms as u64).saturating_sub(current_position as u64);
 
         if let Some(uuid) = track_uuid {
@@ -216,9 +223,7 @@ pub async fn update_player(
                 let player_ref = player.clone();
                 let task = spawn(async move {
                     sleep(Duration::from_millis(remaining_ms)).await;
-                    if let Ok(Some(current_handle)) =
-                        player_ref.ask(GetTrackHandle).await
-                    {
+                    if let Ok(Some(current_handle)) = player_ref.ask(GetTrackHandle).await {
                         if current_handle.uuid() == uuid {
                             player_ref.ask(Stop).await.ok();
                         }
@@ -339,7 +344,12 @@ pub async fn decode_tracks(
         .map(|encoded| {
             let info = decode_track(&encoded)
                 .or_else(|_| decode_base64(&encoded))
-                .map_err(|e| EndpointError::FailedMessage(format!("Failed to decode track {}: {}", encoded, e)))?;
+                .map_err(|e| {
+                    EndpointError::FailedMessage(format!(
+                        "Failed to decode track {}: {}",
+                        encoded, e
+                    ))
+                })?;
             Ok(ApiTrack {
                 encoded,
                 info,
@@ -436,94 +446,7 @@ pub async fn version() -> Response<Body> {
 }
 
 pub async fn get_stats() -> Result<Response<Body>, EndpointError> {
-    let cores = perf_monitor::cpu::processor_numbers().unwrap_or(1);
-    let (global_cpu, process_cpu, free, reservable, used) = {
-        let mut sys = crate::SYSTEM.lock().await;
-        sys.refresh_cpu_usage();
-        let pid = std::process::id();
-        sys.refresh_processes(
-            sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
-            true,
-        );
-        let cpus = sys.cpus();
-        let global_cpu: f32 = if cpus.is_empty() {
-            0.0
-        } else {
-            cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32 / 100.0
-        };
-
-        let process_cpu = if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
-            process.cpu_usage() as f64 / 100.0 / cores as f64
-        } else {
-            0.0
-        };
-
-        sys.refresh_memory();
-        let free = sys.available_memory();
-        let reservable = sys.total_memory();
-
-        let used = crate::ALLOCATOR.allocated() as u64;
-
-        (global_cpu, process_cpu, free, reservable, used)
-    };
-
-    let process_memory_info = perf_monitor::mem::get_process_memory_info()
-        .map_err(|e| EndpointError::FailedMessage(format!("Failed to get memory info: {}", e)))?;
-
-    let mut player_count: u64 = 0;
-    let mut total_sent: u64 = 0;
-    let mut total_nulled: u64 = 0;
-    for client_ref in crate::CLIENTS.iter() {
-        if let Ok(players) = client_ref.ask(crate::ws::client::GetAllPlayers).await {
-            for (_, player_ref) in players {
-                if player_ref.ask(IsActive).await.unwrap_or(false) {
-                    if let Ok(counter) = player_ref.ask(GetFrameCounter).await {
-                        if counter.is_data_usable() {
-                            player_count += 1;
-                            total_sent +=
-                                counter.last_sent.load(std::sync::atomic::Ordering::Relaxed);
-                            total_nulled += counter
-                                .last_nulled
-                                .load(std::sync::atomic::Ordering::Relaxed);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let frame_stats = if player_count > 0 {
-        let avg_sent = total_sent / player_count;
-        let avg_nulled = total_nulled / player_count;
-        let avg_deficit = (crate::util::frame_counter::EXPECTED_FRAMES_PER_MIN as i64)
-            - ((total_sent + total_nulled) / player_count) as i64;
-        Some(crate::models::ApiFrameStats {
-            sent: avg_sent,
-            nulled: avg_nulled as u32,
-            deficit: avg_deficit as i32,
-        })
-    } else {
-        None
-    };
-
-
-    let stats = crate::models::ApiStats {
-        players: crate::SCHEDULER.total_tasks() as u32,
-        playing_players: crate::SCHEDULER.live_tasks() as u32,
-        uptime: crate::START.elapsed().as_millis() as u64,
-        memory: crate::models::ApiMemory {
-            free,
-            used,
-            allocated: process_memory_info.resident_set_size,
-            reservable,
-        },
-        cpu: crate::models::ApiCpu {
-            cores: cores as u32,
-            system_load: global_cpu as f64,
-            lavalink_load: process_cpu,
-        },
-        frame_stats,
-    };
+    let stats = api_stats::get_stats().await;
 
     let string = serde_json::to_string_pretty(&stats)?;
     Response::builder()
@@ -562,7 +485,7 @@ pub async fn get_all_players(
 
 pub async fn get_sessions() -> Result<Response<Body>, EndpointError> {
     let mut sessions = Vec::new();
-    for client_ref in crate::CLIENTS.iter() {
+    for client_ref in CLIENTS.iter() {
         if let Ok(data) = client_ref.ask(GetWebsocketInfo).await {
             sessions.push(serde_json::json!({
                 "resuming": data.resume,

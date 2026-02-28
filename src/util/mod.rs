@@ -1,3 +1,4 @@
+pub mod api_stats;
 pub mod config;
 pub mod converter;
 pub mod decoder;

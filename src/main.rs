@@ -21,6 +21,7 @@ use crate::util::source::{FixAsyncTraitSource, Source};
 use crate::util::task::{AddTask, TasksManager};
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 
+use crate::util::api_stats;
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing;
@@ -239,7 +240,6 @@ async fn main() {
             "/v{version}/sessions",
             routing::get(routes::endpoints::get_sessions),
         )
-
         .route_layer(
             ServiceBuilder::new()
                 .layer(from_fn(middlewares::version::check))
@@ -279,66 +279,7 @@ async fn create_tasks() {
         key: "status_interval".to_lowercase(),
         duration: Duration::from_secs(CONFIG.status_update_secs.unwrap_or(30) as u64),
         handler: || async move {
-            let global_cpu: f32 = {
-                let mut sys = SYSTEM.lock().await;
-                sys.refresh_cpu_usage();
-                let cpus = sys.cpus();
-                if cpus.is_empty() {
-                    0.0
-                } else {
-                    cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32 / 100.0
-                }
-            };
-
-            let Ok(mut stat) = perf_monitor::cpu::ProcessStat::cur() else {
-                return;
-            };
-            let cores = perf_monitor::cpu::processor_numbers().unwrap_or(1);
-
-            let Ok(process_memory_info) = perf_monitor::mem::get_process_memory_info() else {
-                return;
-            };
-
-            let Ok(usage) = stat.cpu() else {
-                return;
-            };
-            let process_cpu = usage / 100.0 / cores as f64;
-
-            let used = ALLOCATOR.allocated() as u64;
-            let free = ALLOCATOR.remaining() as u64;
-            let limit = ALLOCATOR.limit() as u64;
-
-            tracing::debug!(
-                "Memory Usage: (Heap => [Used: {:.2}] [Free: {:.2}] [Limit: {:.2}]) (RSS => [{:.2}]) (VM => [{:.2}])",
-                ByteSize::b(used).display().si(),
-                ByteSize::b(free).display().si(),
-                ByteSize::b(limit).display().si(),
-                ByteSize::b(process_memory_info.resident_set_size)
-                    .display()
-                    .si(),
-                ByteSize::b(process_memory_info.virtual_memory_size)
-                    .display()
-                    .si(),
-            );
-
-            let stats = ApiStats {
-                players: SCHEDULER.total_tasks() as u32,
-                playing_players: SCHEDULER.live_tasks() as u32,
-                uptime: START.elapsed().as_millis() as u64,
-                // todo: api memory is wip
-                memory: ApiMemory {
-                    free,
-                    used,
-                    allocated: process_memory_info.resident_set_size,
-                    reservable: process_memory_info.virtual_memory_size,
-                },
-                cpu: ApiCpu {
-                    cores: cores as u32,
-                    system_load: global_cpu as f64,
-                    lavalink_load: process_cpu,
-                },
-                frame_stats: None,
-            };
+            let stats = api_stats::get_stats().await;
 
             let serialized =
                 serde_json::to_string(&ApiNodeMessage::Stats(Box::new(stats))).unwrap();
