@@ -4,7 +4,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-use crate::models::{ApiCpu, ApiMemory, ApiNodeMessage, ApiStats};
+use crate::models::ApiNodeMessage;
 use crate::source::amazonmusic::source::AmazonMusic;
 use crate::source::applemusic::source::AppleMusic;
 use crate::source::deezer::source::Deezer;
@@ -26,7 +26,6 @@ use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing;
 use axum::serve;
-use bytesize::ByteSize;
 use cap::Cap;
 use dashmap::DashMap;
 use dotenv::dotenv;
