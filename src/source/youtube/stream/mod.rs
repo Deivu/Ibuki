@@ -41,7 +41,7 @@ impl YoutubeHttpStream {
         let mut req_url = self.request.clone();
         if let Some(off) = offset {
             let max_val = self.content_length.unwrap_or(off + 11862014); // 11MB buffer fallback
-            let range_str = format!("&range={}-{}", off, max_val.saturating_sub(1));
+            let range_str = format!("&range={}-{}", off, max_val);
             
             if req_url.contains('?') {
                 req_url.push_str(&range_str);

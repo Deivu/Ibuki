@@ -271,11 +271,6 @@ impl YouTubeManager {
                 continue;
             };
 
-            let mut stream_client_builder = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30));
-            if let Some(ip) = bound_ip {
-                stream_client_builder = stream_client_builder.local_address(ip);
-            }
             let mut headers = reqwest::header::HeaderMap::new();
             let ua_str = client.context().client.user_agent.clone().unwrap_or_else(|| {
                 client.extra_headers()
@@ -287,10 +282,33 @@ impl YouTubeManager {
             if let Ok(ua) = reqwest::header::HeaderValue::from_str(&ua_str) {
                 headers.insert(reqwest::header::USER_AGENT, ua);
             }
-            let stream_client = stream_client_builder
-                .default_headers(headers)
-                .build()
-                .unwrap_or_else(|_| http_client.clone());
+
+            let build_stream_client = |headers: reqwest::header::HeaderMap,
+                                       bound_ip: Option<std::net::IpAddr>,
+                                       url: &str|
+             -> reqwest::Client {
+                let mut builder = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(30))
+                    .default_headers(headers);
+
+                if let Some(ip) = bound_ip {
+                    builder = builder.local_address(ip);
+                } else if let Ok(parsed_url) = url::Url::parse(url) {
+                    if let Some((_, ip_val)) = parsed_url.query_pairs().find(|(k, _)| k == "ip") {
+                        if ip_val.parse::<std::net::Ipv4Addr>().is_ok() {
+                            builder = builder.local_address(std::net::IpAddr::V4(
+                                std::net::Ipv4Addr::UNSPECIFIED,
+                            ));
+                        } else if ip_val.parse::<std::net::Ipv6Addr>().is_ok() {
+                            builder = builder.local_address(std::net::IpAddr::V6(
+                                std::net::Ipv6Addr::UNSPECIFIED,
+                            ));
+                        }
+                    }
+                }
+
+                builder.build().unwrap_or_else(|_| http_client.clone())
+            };
 
             let encrypted_host_flags = if client.name().to_lowercase().contains("embedded") {
                 self.fetch_encrypted_host_flags(video_id).await
@@ -395,7 +413,7 @@ impl YouTubeManager {
                             }
                         }
                     }
-                    return Ok((final_url, stream_client));
+                    return Ok((final_url.clone(), build_stream_client(headers, bound_ip, &final_url)));
                 } else if let Some(sig_cipher) = fmt.get("signatureCipher").and_then(|s| s.as_str())
                 {
                     debug!(
@@ -429,7 +447,7 @@ impl YouTubeManager {
                                         }
                                     }
                                 }
-                                return Ok((final_url, stream_client));
+                                return Ok((final_url.clone(), build_stream_client(headers, bound_ip, &final_url)));
                             }
                             Err(e) => {
                                 warn!("Cipher resolution failed: {:?}", e);
