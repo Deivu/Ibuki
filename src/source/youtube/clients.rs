@@ -154,6 +154,8 @@ impl InnertubeClient for AndroidClient {
                 "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip".to_string(),
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
+            ("X-YouTube-Client-Name".to_string(), "3".to_string()),
+            ("X-YouTube-Client-Version".to_string(), "19.44.38".to_string()),
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
@@ -356,6 +358,9 @@ impl InnertubeClient for TvClient {
             ("Origin".to_string(), "https://www.youtube.com".to_string()),
             ("Referer".to_string(), "https://www.youtube.com/tv".to_string()),
         ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAQ%3D%3D")
     }
     fn supports_oauth(&self) -> bool {
         true
