@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
-use songbird::input::{HttpRequest, Input};
+use songbird::input::Input;
 use tracing::{debug, warn};
 
 use super::manager::YouTubeManager;
@@ -318,6 +318,10 @@ impl Source for Youtube {
 
     async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError> {
         let (stream_url, client) = self.manager.make_playable(&track.info.identifier).await?;
-        Ok(Input::from(HttpRequest::new(client, stream_url)))
+        Ok(Input::from(crate::source::youtube::stream::YoutubeHttpStream::new(
+            client, 
+            stream_url, 
+            reqwest::header::HeaderMap::new()
+        )))
     }
 }
