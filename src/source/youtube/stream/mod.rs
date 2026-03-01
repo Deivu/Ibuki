@@ -26,11 +26,17 @@ pub struct YoutubeHttpStream {
 
 impl YoutubeHttpStream {
     pub fn new(client: Client, request: String, headers: HeaderMap) -> Self {
+        let mut content_length = None;
+        if let Ok(parsed_url) = url::Url::parse(&request) {
+            if let Some((_, clen_val)) = parsed_url.query_pairs().find(|(k, _)| k == "clen") {
+                content_length = clen_val.parse().ok();
+            }
+        }
         Self {
             client,
             request,
             headers,
-            content_length: None,
+            content_length,
         }
     }
 
@@ -40,8 +46,14 @@ impl YoutubeHttpStream {
     ) -> Result<(ActiveStream, Option<Hint>), AudioStreamError> {
         let mut req_url = self.request.clone();
         if let Some(off) = offset {
-            let max_val = self.content_length.unwrap_or(off + 11862014); // 11MB buffer fallback
-            let range_str = format!("&range={}-{}", off, max_val);
+            let buffer_size = 11862014;
+            let mut end = off + buffer_size;
+            if let Some(clen) = self.content_length {
+                if end > clen {
+                    end = clen;
+                }
+            }
+            let range_str = format!("&range={}-{}", off, end);
             
             if req_url.contains('?') {
                 req_url.push_str(&range_str);

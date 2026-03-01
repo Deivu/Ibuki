@@ -283,6 +283,15 @@ impl YouTubeManager {
                 headers.insert(reqwest::header::USER_AGENT, ua);
             }
 
+            for (key, value) in client.extra_headers() {
+                if let (Ok(name), Ok(val)) = (
+                    reqwest::header::HeaderName::from_bytes(key.as_bytes()),
+                    reqwest::header::HeaderValue::from_str(&value),
+                ) {
+                    headers.insert(name, val);
+                }
+            }
+
             let build_stream_client = |headers: reqwest::header::HeaderMap,
                                        bound_ip: Option<std::net::IpAddr>,
                                        url: &str|
