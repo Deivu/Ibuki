@@ -334,6 +334,35 @@ impl YouTubeManager {
                 if let Some(url) = fmt.get("url").and_then(|u| u.as_str()) {
                     debug!("Found direct URL with {}", client.name());
                     let mut final_url = url.to_string();
+                    
+                    let parsed: Result<url::Url, _> = url::Url::parse(url);
+                    if let Ok(parsed_url) = parsed {
+                        let query_pairs: std::collections::HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
+                        if let Some(n) = query_pairs.get("n") {
+                            debug!("Found 'n' parameter in direct URL, attempting decipher");
+                            match self
+                                .cipher
+                                .resolve_url(
+                                    url,
+                                    None,
+                                    Some(n),
+                                    "https://www.youtube.com/iframe_api",
+                                )
+                                .await
+                            {
+                                Ok(deciphered) => final_url = deciphered,
+                                Err(e) => {
+                                    warn!("N-parameter decipher failed for {}: {:?}", client.name(), e);
+                                    // if cipher fails, allow the request to potentially try failing with 403, and Lavalink behavior falls back to next client? 
+                                    // Wait, we shouldn't continue and abort the current client. We can just use the raw url and let it natively fail, or we can `continue;` to the next client! 
+                                    // Lavalink tries the stream format and if cipher fails, it skips it.
+                                    last_error = e;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     if let Some(po) = &po_token {
                         if final_url.contains('?') {
                             final_url.push_str(&format!("&pot={}", po));
