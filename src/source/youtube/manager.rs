@@ -386,11 +386,13 @@ impl YouTubeManager {
                         }
                     }
 
-                    if let Some(po) = &po_token {
-                        if final_url.contains('?') {
-                            final_url.push_str(&format!("&pot={}", po));
-                        } else {
-                            final_url.push_str(&format!("?pot={}", po));
+                    if client.requires_pot() {
+                        if let Some(po) = &po_token {
+                            if final_url.contains('?') {
+                                final_url.push_str(&format!("&pot={}", po));
+                            } else {
+                                final_url.push_str(&format!("?pot={}", po));
+                            }
                         }
                     }
                     return Ok((final_url, stream_client));
@@ -418,11 +420,13 @@ impl YouTubeManager {
                         {
                             Ok(deciphered) => {
                                 let mut final_url = deciphered;
-                                if let Some(po) = &po_token {
-                                    if final_url.contains('?') {
-                                        final_url.push_str(&format!("&pot={}", po));
-                                    } else {
-                                        final_url.push_str(&format!("?pot={}", po));
+                                if client.requires_pot() {
+                                    if let Some(po) = &po_token {
+                                        if final_url.contains('?') {
+                                            final_url.push_str(&format!("&pot={}", po));
+                                        } else {
+                                            final_url.push_str(&format!("?pot={}", po));
+                                        }
                                     }
                                 }
                                 return Ok((final_url, stream_client));

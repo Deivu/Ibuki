@@ -98,6 +98,9 @@ pub trait InnertubeClient: Send + Sync {
     fn supports_oauth(&self) -> bool {
         false
     }
+    fn requires_pot(&self) -> bool {
+        false
+    }
 }
 
 // ---------------------------
@@ -420,6 +423,9 @@ impl InnertubeClient for WebClient {
     fn needs_cipher(&self) -> bool {
         true
     }
+    fn requires_pot(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -468,6 +474,9 @@ impl InnertubeClient for WebRemixClient {
     fn needs_cipher(&self) -> bool {
         true
     }
+    fn requires_pot(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -511,6 +520,9 @@ impl InnertubeClient for WebEmbeddedClient {
         "WebEmbedded"
     }
     fn needs_cipher(&self) -> bool {
+        true
+    }
+    fn requires_pot(&self) -> bool {
         true
     }
     fn context(&self) -> InnertubeContext {
@@ -565,6 +577,9 @@ impl InnertubeClient for WebParentToolsClient {
         "WebParentTools"
     }
     fn needs_cipher(&self) -> bool {
+        true
+    }
+    fn requires_pot(&self) -> bool {
         true
     }
     fn context(&self) -> InnertubeContext {
