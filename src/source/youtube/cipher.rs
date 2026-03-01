@@ -1,6 +1,5 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use regex::Regex;
 use reqwest::Client;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
@@ -9,16 +8,20 @@ use tracing::{debug, error, warn};
 use crate::CONFIG;
 use crate::util::errors::ResolverError;
 
-/// Fallback player hash used when fetching the current one from YouTube fails.
 const FALLBACK_PLAYER_HASH: &str = "00c52fa0";
+
+const PLAYER_URL_TTL: Duration = Duration::from_secs(86400);
+
+struct CachedPlayerUrl {
+    url: String,
+    fetched_at: Instant,
+}
 
 pub struct CipherManager {
     http: Client,
     server_url: Option<String>,
     auth_token: Option<String>,
-    /// Cached base.js player URL. Cleared when the cipher server returns an error
-    /// so the next call will re-fetch a potentially updated hash.
-    player_url_cache: Mutex<Option<String>>,
+    player_url_cache: Mutex<Option<CachedPlayerUrl>>,
 }
 
 impl CipherManager {
@@ -55,54 +58,112 @@ impl CipherManager {
             FALLBACK_PLAYER_HASH
         );
 
-        let resp = match self
+        let browser_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
+
+        match self
             .http
-            .get("https://www.youtube.com/iframe_api")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .get("https://www.youtube.com/embed/")
+            .header("User-Agent", browser_ua)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.5")
             .send()
             .await
         {
-            Ok(r) => r,
-            Err(e) => {
-                warn!("Failed to fetch iframe_api for player URL discovery: {:?}", e);
-                return fallback;
-            }
-        };
+            Ok(resp) => match resp.text().await {
+                Ok(text) => {
+                    if let Some(start) = text.find("\"jsUrl\":\"") {
+                        let rest = &text[start + 9..];
+                        if let Some(end) = rest.find('"') {
+                            let js_url = &rest[..end];
+                            let full_url = if js_url.starts_with("http") {
+                                js_url.to_string()
+                            } else {
+                                format!("https://www.youtube.com{}", js_url)
+                            };
+                            debug!("Discovered player URL from embed page jsUrl: {}", full_url);
+                            return full_url;
+                        }
+                    }
+                    warn!(
+                        "embed/ response did not contain jsUrl (len={}); trying fallback sources",
+                        text.len()
+                    );
+                }
+                Err(e) => warn!("Failed to read embed/ body: {:?}", e),
+            },
+            Err(e) => warn!("Failed to fetch embed/ for player URL: {:?}", e),
+        }
 
-        let text = match resp.text().await {
-            Ok(t) => t,
-            Err(e) => {
-                warn!("Failed to read iframe_api body: {:?}", e);
-                return fallback;
-            }
-        };
+        let hash_re = regex::Regex::new(r"/s/player/([0-9a-f]{8})/").unwrap();
 
-        let re = Regex::new(r"/s/player/([0-9a-f]{8})/").unwrap();
-        if let Some(caps) = re.captures(&text) {
-            let hash = &caps[1];
-            let url = format!(
-                "https://www.youtube.com/s/player/{}/player_ias.vflset/en_US/base.js",
-                hash
+        let fallback_sources = [
+            "https://www.youtube.com/iframe_api",
+            "https://www.youtube.com/",
+        ];
+
+        for source in &fallback_sources {
+            let text = match self
+                .http
+                .get(*source)
+                .header("User-Agent", browser_ua)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.5")
+                .send()
+                .await
+            {
+                Ok(resp) => match resp.text().await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        warn!("Failed to read body from {}: {:?}", source, e);
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to fetch {}: {:?}", source, e);
+                    continue;
+                }
+            };
+
+            if let Some(caps) = hash_re.captures(&text) {
+                let url = format!(
+                    "https://www.youtube.com/s/player/{}/player_ias.vflset/en_US/base.js",
+                    &caps[1]
+                );
+                debug!("Discovered player hash from {}: {}", source, url);
+                return url;
+            }
+
+            warn!(
+                "Could not extract player hash from {} (len={}); trying next source",
+                source,
+                text.len()
             );
-            debug!("Discovered player URL from iframe_api: {}", url);
-            return url;
         }
 
         warn!(
-            "Could not extract player hash from iframe_api response (len={}); using fallback hash {}",
-            text.len(),
+            "All player URL sources failed; using fallback hash {}",
             FALLBACK_PLAYER_HASH
         );
         fallback
     }
 
     async fn get_player_url(&self) -> String {
-        let cached = self.player_url_cache.lock().await.clone();
-        if let Some(url) = cached {
-            return url;
+        let mut cache = self.player_url_cache.lock().await;
+        if let Some(ref cached) = *cache {
+            if cached.fetched_at.elapsed() < PLAYER_URL_TTL {
+                return cached.url.clone();
+            }
+            debug!("Player URL cache expired after 1 day, refreshing");
         }
+        drop(cache);
+
         let url = self.fetch_player_url().await;
-        *self.player_url_cache.lock().await = Some(url.clone());
+
+        let mut cache = self.player_url_cache.lock().await;
+        *cache = Some(CachedPlayerUrl {
+            url: url.clone(),
+            fetched_at: Instant::now(),
+        });
         url
     }
 
@@ -115,6 +176,16 @@ impl CipherManager {
         url: &str,
         sp: Option<&str>,
         n_param: Option<&str>,
+    ) -> Result<String, ResolverError> {
+        self.resolve_url_with_sig_key(url, sp, n_param, None).await
+    }
+
+    pub async fn resolve_url_with_sig_key(
+        &self,
+        url: &str,
+        sp: Option<&str>,
+        n_param: Option<&str>,
+        sig_key: Option<&str>,
     ) -> Result<String, ResolverError> {
         let Some(base_url) = &self.server_url else {
             return Err(ResolverError::Custom(
@@ -129,18 +200,15 @@ impl CipherManager {
             "player_url": player_url,
         });
 
+        let obj = payload.as_object_mut().unwrap();
         if let Some(s) = sp {
-            payload
-                .as_object_mut()
-                .unwrap()
-                .insert("encrypted_signature".to_string(), json!(s));
+            obj.insert("encrypted_signature".to_string(), json!(s));
         }
-
         if let Some(n) = n_param {
-            payload
-                .as_object_mut()
-                .unwrap()
-                .insert("n_param".to_string(), json!(n));
+            obj.insert("n_param".to_string(), json!(n));
+        }
+        if let Some(key) = sig_key {
+            obj.insert("signature_key".to_string(), json!(key));
         }
 
         let endpoint = format!("{}/resolve_url", base_url.trim_end_matches('/'));
@@ -155,13 +223,16 @@ impl CipherManager {
         let status = res.status();
         let body: Value = res.json().await.map_err(ResolverError::Reqwest)?;
 
-        // Server returns {"success": false, "error": {...}} on failure
         if !status.is_success() || body.get("success").and_then(|v| v.as_bool()) == Some(false) {
             let msg = body
                 .get("error")
                 .and_then(|e| e.get("error"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("Unknown cipher error");
+                .unwrap_or_else(|| {
+                    body.get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown cipher error")
+                });
             error!("Cipher Server Error: {} - {}", status, msg);
             self.invalidate_player_url().await;
             return Err(ResolverError::Custom(format!("Cipher Error: {}", msg)));
