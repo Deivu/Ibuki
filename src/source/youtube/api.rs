@@ -156,9 +156,6 @@ impl InnertubeApi {
         if let Some(vd) = visitor_data {
             headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
         }
-        if let Some(token) = oauth_token {
-            headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
-        }
 
         if let Some(po) = po_token {
             if let Some(p) = payload.as_object_mut() {
@@ -259,7 +256,7 @@ impl InnertubeApi {
             context.client.visitor_data = Some(vd.to_string());
         }
 
-        if oauth_token.is_none() {
+        if oauth_token.is_none() || !client.supports_oauth() {
             context.client.client_screen = Some("EMBED".to_string());
             let mut fields = serde_json::Map::new();
             fields.insert("embedUrl".to_string(), json!("https://google.com"));
@@ -273,7 +270,9 @@ impl InnertubeApi {
         }
 
         if let Some(token) = oauth_token {
-            headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            if client.supports_oauth() {
+                headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            }
         }
 
         if let Some(po) = po_token {

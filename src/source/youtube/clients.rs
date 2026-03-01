@@ -95,6 +95,9 @@ pub trait InnertubeClient: Send + Sync {
     fn player_params(&self) -> Option<&'static str> {
         None
     }
+    fn supports_oauth(&self) -> bool {
+        false
+    }
 }
 
 // ---------------------------
@@ -341,6 +344,9 @@ impl InnertubeClient for TvClient {
             ("Origin".to_string(), "https://www.youtube.com".to_string()),
             ("Referer".to_string(), "https://www.youtube.com/tv".to_string()),
         ]
+    }
+    fn supports_oauth(&self) -> bool {
+        true
     }
 }
 
