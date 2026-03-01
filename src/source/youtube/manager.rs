@@ -150,7 +150,10 @@ impl YouTubeManager {
                 "No search client available".to_string(),
             ))?;
 
-        let visitor_data = self.sabr.lock().await.get_visitor_data();
+        let (visitor_data, po_token) = {
+            let sabr = self.sabr.lock().await;
+            (sabr.get_visitor_data(), sabr.get_po_token())
+        };
         let oauth_token = self.oauth.lock().await.get_access_token();
 
         self.api
@@ -159,6 +162,7 @@ impl YouTubeManager {
                 client.as_ref(),
                 None,
                 visitor_data.as_deref(),
+                po_token.as_deref(),
                 oauth_token.as_deref(),
                 &http_client,
                 bound_ip,

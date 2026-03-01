@@ -117,6 +117,7 @@ impl InnertubeApi {
         client: &dyn InnertubeClient,
         params: Option<&str>,
         visitor_data: Option<&str>,
+        po_token: Option<&str>,
         oauth_token: Option<&str>,
         http_client: &Client,
         bound_ip: Option<std::net::IpAddr>,
@@ -157,6 +158,17 @@ impl InnertubeApi {
         }
         if let Some(token) = oauth_token {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+        }
+
+        if let Some(po) = po_token {
+            if let Some(p) = payload.as_object_mut() {
+                p.insert(
+                    "serviceIntegrityDimensions".to_string(),
+                    json!({
+                        "poToken": po
+                    }),
+                );
+            }
         }
 
         self.make_request(
