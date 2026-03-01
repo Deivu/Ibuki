@@ -418,7 +418,6 @@ impl YouTubeManager {
                                     url,
                                     None,
                                     Some(n),
-                                    "https://www.youtube.com/iframe_api",
                                 )
                                 .await
                             {
@@ -482,7 +481,6 @@ impl YouTubeManager {
                                 url,
                                 Some(sig),
                                 params.get("n").map(|s| s.as_str()),
-                                "https://www.youtube.com/iframe_api",
                             )
                             .await
                         {
