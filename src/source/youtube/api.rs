@@ -118,7 +118,7 @@ impl InnertubeApi {
         params: Option<&str>,
         visitor_data: Option<&str>,
         po_token: Option<&str>,
-        oauth_token: Option<&str>,
+        _oauth_token: Option<&str>,
         http_client: &Client,
         bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
@@ -361,6 +361,61 @@ impl InnertubeApi {
 
         self.make_request(
             "/next",
+            client,
+            &context,
+            payload,
+            &headers,
+            http_client,
+            bound_ip,
+        )
+        .await
+    }
+
+    pub async fn browse(
+        &self,
+        browse_id: Option<&str>,
+        continuation: Option<&str>,
+        client: &dyn InnertubeClient,
+        visitor_data: Option<&str>,
+        oauth_token: Option<&str>,
+        http_client: &Client,
+        bound_ip: Option<std::net::IpAddr>,
+    ) -> Result<Value, ResolverError> {
+        let mut payload = json!({});
+
+        if let Some(bid) = browse_id {
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("browseId".to_string(), json!(bid));
+        }
+
+        if let Some(cont) = continuation {
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("continuation".to_string(), json!(cont));
+        }
+
+        let mut context = client.context();
+        if let Some(vd) = visitor_data {
+            context.client.visitor_data = Some(vd.to_string());
+        }
+
+        let mut headers = client.extra_headers();
+
+        if let Some(vd) = visitor_data {
+            headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
+        }
+
+        if let Some(token) = oauth_token {
+            if client.supports_oauth() {
+                headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            }
+        }
+
+        self.make_request(
+            "/browse",
             client,
             &context,
             payload,

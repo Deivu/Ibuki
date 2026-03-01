@@ -18,15 +18,15 @@ use super::oauth::YoutubeOAuth;
 use super::sabr::Sabr;
 
 pub struct YouTubeManager {
-    http: Client,
-    api: InnertubeApi,
-    cipher: CipherManager,
-    sabr: Arc<Mutex<Sabr>>,
-    oauth: Arc<Mutex<YoutubeOAuth>>,
-    clients: DashMap<String, Box<dyn InnertubeClient>>,
-    search_clients: Vec<String>,
-    resolve_clients: Vec<String>,
-    playback_clients: Vec<String>,
+    pub(crate) http: Client,
+    pub(crate) api: InnertubeApi,
+    pub(crate) cipher: CipherManager,
+    pub(crate) sabr: Arc<Mutex<Sabr>>,
+    pub(crate) oauth: Arc<Mutex<YoutubeOAuth>>,
+    pub(crate) clients: DashMap<String, Box<dyn InnertubeClient>>,
+    pub(crate) search_clients: Vec<String>,
+    pub(crate) resolve_clients: Vec<String>,
+    pub(crate) playback_clients: Vec<String>,
 }
 
 impl YouTubeManager {
@@ -527,4 +527,272 @@ impl YouTubeManager {
 
         Err(last_error)
     }
+
+    pub async fn get_refresh_token(&self) -> Option<String> {
+        self.oauth.lock().await.get_refresh_token()
+    }
+
+    pub async fn update_po_token_and_visitor_data(
+        &self,
+        po_token: Option<String>,
+        visitor_data: Option<String>,
+    ) {
+        let mut sabr = self.sabr.lock().await;
+        sabr.set_po_token(po_token);
+        sabr.set_visitor_data(visitor_data);
+    }
+
+    pub async fn set_oauth_refresh_token(
+        &self,
+        refresh_token: String,
+        skip_initialization: bool,
+    ) {
+        let mut oauth = self.oauth.lock().await;
+        oauth.set_refresh_token(refresh_token);
+        if !skip_initialization {
+            match oauth.refresh_if_needed().await {
+                Ok(_) => info!("YouTube OAuth updated via REST API."),
+                Err(e) => warn!("YouTube OAuth refresh via REST API failed: {:?}", e),
+            }
+        }
+    }
+
+    pub async fn create_access_token_from_refresh(
+        &self,
+        refresh_token: &str,
+    ) -> Result<super::oauth::OauthToken, ResolverError> {
+        let oauth = self.oauth.lock().await;
+        oauth.create_access_token_from_refresh(refresh_token).await
+    }
+
+    pub async fn load_playlist(
+        &self,
+        playlist_id: &str,
+    ) -> Result<(String, Vec<Value>), ResolverError> {
+        let (visitor_data, _po_token) = {
+            let sabr = self.sabr.lock().await;
+            (sabr.get_visitor_data(), sabr.get_po_token())
+        };
+        let oauth_token = self.oauth.lock().await.get_access_token();
+
+        let (http_client, bound_ip) = crate::get_client();
+
+        let client_name = self
+            .resolve_clients
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "Web".to_string());
+        let client = self
+            .get_innertube_client(&client_name)
+            .ok_or_else(|| ResolverError::Custom("No resolve client available".to_string()))?;
+
+        let browse_id = format!("VL{}", playlist_id);
+
+        let mut response = self
+            .api
+            .browse(
+                Some(&browse_id),
+                None,
+                client.as_ref(),
+                visitor_data.as_deref(),
+                oauth_token.as_deref(),
+                &http_client,
+                bound_ip,
+            )
+            .await?;
+
+        let playlist_name = extract_playlist_name(&response)
+            .unwrap_or_else(|| playlist_id.to_string());
+
+        let mut all_videos: Vec<Value> = Vec::new();
+        extract_playlist_videos(&response, &mut all_videos);
+
+        for _ in 0..5 {
+            let token = match extract_playlist_continuation(&response) {
+                Some(t) => t,
+                None => break,
+            };
+
+            let client2 = self
+                .get_innertube_client(&client_name)
+                .ok_or_else(|| ResolverError::Custom("No resolve client available".to_string()))?;
+
+            response = self
+                .api
+                .browse(
+                    None,
+                    Some(&token),
+                    client2.as_ref(),
+                    visitor_data.as_deref(),
+                    oauth_token.as_deref(),
+                    &http_client,
+                    bound_ip,
+                )
+                .await?;
+
+            extract_playlist_videos(&response, &mut all_videos);
+        }
+
+        Ok((playlist_name, all_videos))
+    }
+}
+
+
+fn extract_playlist_name(json: &Value) -> Option<String> {
+    json.get("header")
+        .and_then(|h| h.get("playlistHeaderRenderer"))
+        .and_then(|r| r.get("title"))
+        .and_then(|t| t.get("simpleText"))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            json.get("header")
+                .and_then(|h| h.get("playlistHeaderRenderer"))
+                .and_then(|r| r.get("title"))
+                .and_then(|t| t.get("runs"))
+                .and_then(|r| r.as_array())
+                .and_then(|r| r.first())
+                .and_then(|r| r.get("text"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            json.get("metadata")
+                .and_then(|m| m.get("playlistMetadataRenderer"))
+                .and_then(|r| r.get("title"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+fn extract_playlist_videos(json: &Value, videos: &mut Vec<Value>) {
+    if let Some(items) = json
+        .get("contents")
+        .and_then(|c| c.get("twoColumnBrowseResultsRenderer"))
+        .and_then(|c| c.get("tabs"))
+        .and_then(|t| t.as_array())
+        .and_then(|t| t.first())
+        .and_then(|t| t.get("tabRenderer"))
+        .and_then(|t| t.get("content"))
+        .and_then(|c| c.get("sectionListRenderer"))
+        .and_then(|s| s.get("contents"))
+        .and_then(|c| c.as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("itemSectionRenderer"))
+        .and_then(|c| c.get("contents"))
+        .and_then(|c| c.as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("playlistVideoListRenderer"))
+        .and_then(|pl| pl.get("contents"))
+        .and_then(|c| c.as_array())
+    {
+        for item in items {
+            if let Some(video) = item.get("playlistVideoRenderer") {
+                videos.push(video.clone());
+            }
+        }
+        return;
+    }
+
+    if let Some(items) = json
+        .get("contents")
+        .and_then(|c| c.get("singleColumnBrowseResultsRenderer"))
+        .and_then(|c| c.get("tabs"))
+        .and_then(|t| t.as_array())
+        .and_then(|t| t.first())
+        .and_then(|t| t.get("tabRenderer"))
+        .and_then(|t| t.get("content"))
+        .and_then(|c| c.get("sectionListRenderer"))
+        .and_then(|s| s.get("contents"))
+        .and_then(|c| c.as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("itemSectionRenderer"))
+        .and_then(|c| c.get("contents"))
+        .and_then(|c| c.as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("playlistVideoListRenderer"))
+        .and_then(|pl| pl.get("contents"))
+        .and_then(|c| c.as_array())
+    {
+        for item in items {
+            if let Some(video) = item.get("playlistVideoRenderer") {
+                videos.push(video.clone());
+            }
+        }
+        return;
+    }
+
+    if let Some(actions) = json
+        .get("onResponseReceivedActions")
+        .and_then(|a| a.as_array())
+    {
+        for action in actions {
+            if let Some(items) = action
+                .get("appendContinuationItemsAction")
+                .and_then(|a| a.get("continuationItems"))
+                .and_then(|c| c.as_array())
+            {
+                for item in items {
+                    if let Some(video) = item.get("playlistVideoRenderer") {
+                        videos.push(video.clone());
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn extract_playlist_continuation(json: &Value) -> Option<String> {
+    let mut candidate_items: Vec<&Value> = Vec::new();
+    if let Some(arr) = json
+        .get("contents")
+        .and_then(|c| c.get("twoColumnBrowseResultsRenderer"))
+        .and_then(|c| c.get("tabs"))
+        .and_then(|t| t.as_array())
+        .and_then(|t| t.first())
+        .and_then(|t| t.get("tabRenderer"))
+        .and_then(|t| t.get("content"))
+        .and_then(|c| c.get("sectionListRenderer"))
+        .and_then(|s| s.get("contents"))
+        .and_then(|c| c.as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("itemSectionRenderer"))
+        .and_then(|c| c.get("contents"))
+        .and_then(|c| c.as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("playlistVideoListRenderer"))
+        .and_then(|pl| pl.get("contents"))
+        .and_then(|c| c.as_array())
+    {
+        candidate_items.extend(arr.iter());
+    }
+
+    if let Some(actions) = json
+        .get("onResponseReceivedActions")
+        .and_then(|a| a.as_array())
+    {
+        for action in actions {
+            if let Some(arr) = action
+                .get("appendContinuationItemsAction")
+                .and_then(|a| a.get("continuationItems"))
+                .and_then(|c| c.as_array())
+            {
+                candidate_items.extend(arr.iter());
+            }
+        }
+    }
+
+    for item in candidate_items {
+        if let Some(token) = item
+            .get("continuationItemRenderer")
+            .and_then(|c| c.get("continuationEndpoint"))
+            .and_then(|e| e.get("continuationCommand"))
+            .and_then(|c| c.get("token"))
+            .and_then(|t| t.as_str())
+        {
+            return Some(token.to_string());
+        }
+    }
+
+    None
 }

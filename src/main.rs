@@ -247,6 +247,13 @@ async fn main() {
         )
         .route("/version", routing::get(routes::endpoints::version))
         .route("/", routing::get(routes::global::landing))
+
+        .route("/youtube", routing::get(routes::youtube::get_youtube_config))
+        .route("/youtube", routing::post(routes::youtube::update_youtube_config))
+        .route(
+            "/youtube/oauth/{refresh_token}",
+            routing::get(routes::youtube::get_youtube_oauth_token),
+        )
         .fallback(|request: axum::extract::Request| async move {
             tracing::warn!(
                 "Unmatched request: [Method: {}] [URI: {}]",

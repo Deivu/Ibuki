@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
 use songbird::input::Input;
+use std::sync::Arc;
 use tracing::{debug, warn};
 
 use super::manager::YouTubeManager;
@@ -10,14 +11,14 @@ use crate::util::errors::ResolverError;
 use crate::util::source::{Query, Source};
 
 pub struct Youtube {
-    manager: YouTubeManager,
+    manager: Arc<YouTubeManager>,
 }
 
 impl Youtube {
     pub fn new(_http: Option<Client>) -> Self {
-        Self {
-            manager: YouTubeManager::new(),
-        }
+        let manager = Arc::new(YouTubeManager::new());
+        let _ = super::YOUTUBE_MANAGER.set(Arc::clone(&manager));
+        Self { manager }
     }
 
     fn parse_video_details(&self, details: &Value) -> Option<ApiTrackInfo> {
@@ -253,8 +254,29 @@ impl Source for Youtube {
     }
 
     async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
+        let yt_cfg = crate::CONFIG.youtube_config.as_ref();
+        let allow_search = yt_cfg
+            .and_then(|c| c.allow_search)
+            .unwrap_or(true);
+        let allow_direct_video_ids = yt_cfg
+            .and_then(|c| c.allow_direct_video_ids)
+            .unwrap_or(true);
+        let allow_direct_playlist_ids = yt_cfg
+            .and_then(|c| c.allow_direct_playlist_ids)
+            .unwrap_or(true);
+
         match query {
             Query::Search(search_query) => {
+                if !allow_search {
+                    return Ok(Some(ApiTrackResult::Error(
+                        crate::models::ApiTrackLoadException {
+                            message: "YouTube search is disabled".to_string(),
+                            severity: crate::models::Severity::Common,
+                            cause: "allowSearch is false in the YouTube config".to_string(),
+                        },
+                    )));
+                }
+
                 debug!("YouTube: Searching for: {}", search_query);
                 let res = match self.manager.search(&search_query).await {
                     Ok(res) => {
@@ -279,27 +301,67 @@ impl Source for Youtube {
                 Ok(None)
             }
             Query::Url(url) => {
-                let stripped = if let Some(s) = url.strip_prefix("https://www.youtube.com/watch?v=")
-                {
-                    s
-                } else if let Some(s) = url.strip_prefix("https://youtu.be/") {
-                    s
-                } else {
-                    return Ok(None);
+                let parsed = url::Url::parse(&url).ok();
+
+                let playlist_id = parsed.as_ref().and_then(|u| {
+                    u.query_pairs()
+                        .find(|(k, _)| k == "list")
+                        .map(|(_, v)| v.to_string())
+                });
+
+                let video_id = parsed.as_ref().and_then(|u| {
+                    u.query_pairs()
+                        .find(|(k, _)| k == "v")
+                        .map(|(_, v)| v.to_string())
+                        .or_else(|| {
+                            let path_segments: Vec<_> = u
+                                .path_segments()
+                                .map(|s| s.collect())
+                                .unwrap_or_default();
+                            if u.host_str() == Some("youtu.be") {
+                                path_segments.first().map(|s| s.to_string())
+                            } else if path_segments.first().map(|s| *s)
+                                == Some("shorts")
+                            {
+                                path_segments.get(1).map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                });
+
+                if let Some(pid) = playlist_id {
+                    if !pid.starts_with("RD") && allow_direct_playlist_ids {
+                        return self.resolve_playlist(&pid).await;
+                    }
+                }
+
+                if !allow_direct_video_ids {
+                    return Ok(Some(ApiTrackResult::Error(
+                        crate::models::ApiTrackLoadException {
+                            message: "YouTube direct video IDs are disabled".to_string(),
+                            severity: crate::models::Severity::Common,
+                            cause: "allowDirectVideoIds is false in the YouTube config".to_string(),
+                        },
+                    )));
+                }
+
+                let vid = match video_id {
+                    Some(v) => v,
+                    None => {
+                        warn!("YouTube: Could not extract video ID from URL: {}", url);
+                        return Ok(None);
+                    }
                 };
 
-                let video_id = stripped.split(&['&', '?'][..]).next().unwrap_or("");
-
-                if video_id.len() != 11
-                    || !video_id
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                if vid.len() != 11
+                    || !vid.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
                 {
-                    tracing::warn!("YouTube: Invalid video ID extracted: {}", video_id);
+                    warn!("YouTube: Invalid video ID extracted: {}", vid);
                     return Ok(None);
                 }
 
-                let info = self.manager.resolve_video(video_id).await?;
+                let info = self.manager.resolve_video(&vid).await?;
 
                 if let Some(details) = info.get("videoDetails") {
                     if let Some(track_info) = self.parse_video_details(details) {
@@ -317,11 +379,118 @@ impl Source for Youtube {
     }
 
     async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError> {
-        let (stream_url, client, headers) = self.manager.make_playable(&track.info.identifier).await?;
-        Ok(Input::from(crate::source::youtube::stream::YoutubeHttpStream::new(
-            client, 
-            stream_url, 
-            headers
+        let (stream_url, client, headers) =
+            self.manager.make_playable(&track.info.identifier).await?;
+        Ok(Input::from(
+            crate::source::youtube::stream::YoutubeHttpStream::new(
+                client,
+                stream_url,
+                headers,
+            ),
+        ))
+    }
+}
+
+
+impl Youtube {
+    async fn resolve_playlist(
+        &self,
+        playlist_id: &str,
+    ) -> Result<Option<ApiTrackResult>, ResolverError> {
+        debug!("YouTube: Loading playlist {}", playlist_id);
+
+        let (name, video_renderers) = match self.manager.load_playlist(playlist_id).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("YouTube: Playlist load failed for {}: {:?}", playlist_id, e);
+                return Err(e);
+            }
+        };
+
+        let mut tracks: Vec<ApiTrack> = Vec::new();
+        for renderer in &video_renderers {
+            if let Some(obj) = renderer.as_object() {
+                if let Some(track) = self.parse_playlist_video_renderer(obj) {
+                    tracks.push(track);
+                }
+            }
+        }
+
+        if tracks.is_empty() {
+            return Ok(Some(ApiTrackResult::Empty(None)));
+        }
+
+        Ok(Some(ApiTrackResult::Playlist(
+            crate::models::ApiTrackPlaylist {
+                info: crate::models::ApiPlaylistInfo {
+                    name,
+                    selected_track: 0,
+                },
+                plugin_info: crate::models::Empty,
+                tracks,
+            },
         )))
+    }
+
+    fn parse_playlist_video_renderer(
+        &self,
+        obj: &serde_json::Map<String, Value>,
+    ) -> Option<ApiTrack> {
+        let id = obj.get("videoId")?.as_str()?;
+
+        let is_playable = obj
+            .get("isPlayable")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        if !is_playable {
+            return None;
+        }
+
+        let title = obj
+            .get("title")
+            .and_then(|t| t.get("runs"))
+            .and_then(|r| r.as_array())
+            .and_then(|r| r.first())
+            .and_then(|r| r.get("text"))
+            .and_then(|t| t.as_str())
+            .or_else(|| obj.get("title").and_then(|t| t.as_str()))?;
+
+        let author = obj
+            .get("shortBylineText")
+            .and_then(|t| t.get("runs"))
+            .and_then(|r| r.as_array())
+            .and_then(|r| r.first())
+            .and_then(|r| r.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+
+        let length = obj
+            .get("lengthSeconds")
+            .and_then(|l| l.as_str())
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|secs| secs * 1000)
+            .unwrap_or(0);
+
+        let info = ApiTrackInfo {
+            title: title.to_string(),
+            author,
+            length,
+            identifier: id.to_string(),
+            is_stream: false,
+            uri: Some(format!("https://www.youtube.com/watch?v={}", id)),
+            artwork_url: Some(format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", id)),
+            source_name: "youtube".to_string(),
+            isrc: None,
+            position: 0,
+            is_seekable: true,
+        };
+
+        Some(ApiTrack {
+            encoded: crate::util::encoder::encode_track(&info).ok()?,
+            info,
+            plugin_info: crate::models::Empty,
+            user_data: None,
+        })
     }
 }

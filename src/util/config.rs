@@ -36,6 +36,9 @@ pub struct YoutubeCipherConfig {
 #[serde(rename_all = "camelCase")]
 pub struct YoutubeConfig {
     pub enabled: Option<bool>,
+    pub allow_search: Option<bool>,
+    pub allow_direct_video_ids: Option<bool>,
+    pub allow_direct_playlist_ids: Option<bool>,
     pub allow_itag: Option<Vec<u32>>,
     pub target_itag: Option<u32>,
     pub get_oauth_token: Option<bool>,

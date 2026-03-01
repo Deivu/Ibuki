@@ -59,8 +59,12 @@ impl YoutubeOAuth {
             Ok(None)
         }
     }
+    
+    pub async fn create_access_token_from_refresh(&self, refresh_token: &str) -> Result<OauthToken, ResolverError> {
+        self.refresh_access_token(refresh_token).await
+    }
 
-    async fn refresh_access_token(&self, refresh_token: &str) -> Result<OauthToken, ResolverError> {
+    pub async fn refresh_access_token(&self, refresh_token: &str) -> Result<OauthToken, ResolverError> {
         let params = [
             (
                 "client_id",

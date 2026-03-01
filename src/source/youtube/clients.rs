@@ -101,9 +101,6 @@ pub trait InnertubeClient: Send + Sync {
     fn requires_pot(&self) -> bool {
         false
     }
-    /// Whether api.rs should force clientScreen=EMBED + thirdParty on this client.
-    /// Mobile clients (IOS, Android, AndroidVR, etc.) do NOT want this — only
-    /// browser-based Web clients use embed context.
     fn use_embed_context(&self) -> bool {
         false
     }
@@ -112,8 +109,6 @@ pub trait InnertubeClient: Send + Sync {
 // ---------------------------
 // ANDROID
 // ---------------------------
-// NOTE: Lavalink marks this client as "ANDROID is broken with no known fix.
-// It is no longer advised to use this client."
 pub struct AndroidClient;
 impl InnertubeClient for AndroidClient {
     fn name(&self) -> &'static str {
@@ -227,12 +222,12 @@ impl InnertubeClient for AndroidVrClient {
             client: InnertubeClientInfo {
                 client_name: "ANDROID_VR".to_string(),
                 client_version: "1.60.19".to_string(),
-                user_agent: Some("com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip".to_string()),
+                user_agent: Some("com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
                 os_name: Some("Android".to_string()),
-                os_version: Some("12".to_string()),
+                os_version: Some("12L".to_string()),
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
@@ -249,14 +244,14 @@ impl InnertubeClient for AndroidVrClient {
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
-            ("User-Agent".to_string(), "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip".to_string()),
+            ("User-Agent".to_string(), "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip".to_string()),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
             ("X-YouTube-Client-Name".to_string(), "84".to_string()),
             ("X-YouTube-Client-Version".to_string(), "1.60.19".to_string()),
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAdgDAQ%3D%3D")
+        None
     }
 }
 
@@ -272,18 +267,18 @@ impl InnertubeClient for IosClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "IOS".to_string(),
-                client_version: "20.03.02".to_string(),
+                client_version: "19.45.4".to_string(),
                 user_agent: Some(
-                    "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X)"
+                    "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
                         .to_string(),
                 ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
                 os_name: Some("iOS".to_string()),
-                os_version: Some("18.2.1".to_string()),
+                os_version: Some("18.1.0".to_string()),
                 platform: Some("MOBILE".to_string()),
-                client_form_factor: Some("SMALL_FORM_FACTOR".to_string()),
+                client_form_factor: None,
                 config_info: None,
                 client_screen: None,
                 android_sdk_version: None,
@@ -300,14 +295,14 @@ impl InnertubeClient for IosClient {
         vec![
             (
                 "User-Agent".to_string(),
-                "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X)"
+                "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
                     .to_string(),
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
             ("X-YouTube-Client-Name".to_string(), "5".to_string()),
             (
                 "X-YouTube-Client-Version".to_string(),
-                "20.03.02".to_string(),
+                "19.45.4".to_string(),
             ),
         ]
     }
@@ -651,6 +646,54 @@ impl InnertubeClient for WebParentToolsClient {
     }
 }
 
+// ---------------------------
+// MWEB (Mobile Web)
+// ---------------------------
+pub struct MWebClient;
+impl InnertubeClient for MWebClient {
+    fn name(&self) -> &'static str {
+        "MWeb"
+    }
+    fn context(&self) -> InnertubeContext {
+        InnertubeContext {
+            client: InnertubeClientInfo {
+                client_name: "MWEB".to_string(),
+                client_version: "2.20240726.01.00".to_string(),
+                user_agent: Some(
+                    "Mozilla/5.0 (Linux; Android 11; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Mobile Safari/537.36,gzip(gfe)".to_string(),
+                ),
+                gl: Some("US".to_string()),
+                hl: Some("en".to_string()),
+                visitor_data: None,
+                os_name: Some("Android".to_string()),
+                os_version: Some("11".to_string()),
+                platform: Some("MOBILE".to_string()),
+                client_form_factor: Some("SMALL_FORM_FACTOR".to_string()),
+                config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
+            },
+            third_party: None,
+            user: Some(InnertubeUser { locked_safety_mode: false }),
+        }
+    }
+    fn extra_headers(&self) -> Vec<(String, String)> {
+        vec![
+            (
+                "User-Agent".to_string(),
+                "Mozilla/5.0 (Linux; Android 11; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Mobile Safari/537.36,gzip(gfe)".to_string(),
+            ),
+        ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAdgDAQ%3D%3D")
+    }
+}
+
 pub fn get_client_by_name(name: &str) -> Option<Box<dyn InnertubeClient>> {
     match name.to_lowercase().as_str() {
         "androidvr" | "android_vr" => Some(Box::new(AndroidVrClient)),
@@ -663,6 +706,7 @@ pub fn get_client_by_name(name: &str) -> Option<Box<dyn InnertubeClient>> {
         "webremix" | "web_remix" => Some(Box::new(WebRemixClient)),
         "webparenttools" | "web_parent_tools" => Some(Box::new(WebParentToolsClient)),
         "ios" => Some(Box::new(IosClient)),
+        "mweb" | "m_web" => Some(Box::new(MWebClient)),
         _ => None,
     }
 }

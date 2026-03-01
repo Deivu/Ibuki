@@ -164,4 +164,12 @@ impl Sabr {
     pub fn get_po_token(&self) -> Option<String> {
         self.po_token.clone()
     }
+
+    pub fn set_visitor_data(&mut self, visitor_data: Option<String>) {
+        self.visitor_data = visitor_data;
+    }
+
+    pub fn set_po_token(&mut self, po_token: Option<String>) {
+        self.po_token = po_token;
+    }
 }
