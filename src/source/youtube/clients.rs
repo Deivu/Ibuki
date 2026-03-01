@@ -18,7 +18,9 @@ pub enum ClientType {
 #[serde(rename_all = "camelCase")]
 pub struct InnertubeContext {
     pub client: InnertubeClientInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub third_party: Option<InnertubeThirdParty>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub request: Option<InnertubeRequest>,
 }
 
@@ -65,7 +67,8 @@ pub struct InnertubeThirdParty {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InnertubeRequest {
-    pub use_ssl: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_ssl: Option<bool>,
 }
 
 pub trait InnertubeClient: Send + Sync {
@@ -113,7 +116,7 @@ impl InnertubeClient for AndroidClient {
                 client_screen: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -158,7 +161,7 @@ impl InnertubeClient for AndroidMusicClient {
                 client_screen: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -201,7 +204,7 @@ impl InnertubeClient for AndroidVrClient {
                 client_screen: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -245,7 +248,7 @@ impl InnertubeClient for IosClient {
                 client_screen: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -293,7 +296,7 @@ impl InnertubeClient for TvClient {
                 client_screen: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -339,7 +342,7 @@ impl InnertubeClient for TvEmbeddedClient {
                     m
                 }
             }),
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -387,7 +390,7 @@ impl InnertubeClient for WebClient {
                 client_screen: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -430,7 +433,7 @@ impl InnertubeClient for WebRemixClient {
                 client_screen: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -476,7 +479,7 @@ impl InnertubeClient for WebEmbeddedClient {
                     m
                 }
             }),
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -525,7 +528,7 @@ impl InnertubeClient for WebParentToolsClient {
                     m
                 }
             }),
-            request: Some(InnertubeRequest { use_ssl: true }),
+            request: Some(InnertubeRequest { use_ssl: Some(true) }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {

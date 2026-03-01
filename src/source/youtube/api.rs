@@ -50,6 +50,10 @@ impl InnertubeApi {
             }
         }
 
+        tracing::debug!("InnerTube Request ({}):", endpoint);
+        tracing::debug!("  Headers: {:?}", extra_headers);
+        tracing::debug!("  Payload: {}", serde_json::to_string(&final_payload).unwrap_or_default());
+
         let res = req_builder.json(&final_payload).send().await;
 
         let (res, fallback_used) = match res {
@@ -136,6 +140,9 @@ impl InnertubeApi {
         }
 
         let mut headers = client.extra_headers();
+        if let Some(vd) = visitor_data {
+            headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
+        }
         if let Some(token) = oauth_token {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
         }
