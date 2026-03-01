@@ -281,13 +281,18 @@ impl YouTubeManager {
                     .unwrap_or_else(|| "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string())
             });
             if let Ok(ua) = reqwest::header::HeaderValue::from_str(&ua_str) {
-                headers.insert(reqwest::header::USER_AGENT, ua.clone());
+                headers.insert(reqwest::header::USER_AGENT, ua);
+            }
+            
+            let stream_ua = ua_str.replace(" gzip", "");
+            if let Ok(ua) = reqwest::header::HeaderValue::from_str(&stream_ua) {
                 stream_headers.insert(reqwest::header::USER_AGENT, ua);
             }
 
             if let Some(visitor_id) = &visitor_data {
                 if let Ok(val) = reqwest::header::HeaderValue::from_str(visitor_id) {
-                    headers.insert("X-Goog-Visitor-Id", val);
+                    headers.insert("X-Goog-Visitor-Id", val.clone());
+                    stream_headers.insert("X-Goog-Visitor-Id", val);
                 }
             }
 
@@ -297,13 +302,15 @@ impl YouTubeManager {
                     reqwest::header::HeaderValue::from_str(&value),
                 ) {
                     headers.insert(name.clone(), val.clone());
-                    
                     let lower_key = key.to_lowercase();
-                    if lower_key == "user-agent" || lower_key == "referer" || lower_key == "origin" {
-                        stream_headers.insert(name, val);
+                    if lower_key == "user-agent" || lower_key == "referer" || lower_key == "origin" || lower_key == "x-goog-visitor-id" {
+                        if !stream_headers.contains_key(&name) {
+                            stream_headers.insert(name, val);
+                        }
                     }
                 }
             }
+
 
             let build_stream_client = |headers: reqwest::header::HeaderMap,
                                        bound_ip: Option<std::net::IpAddr>,
