@@ -50,12 +50,18 @@ impl YoutubeHttpStream {
             }
         }
 
+        tracing::debug!("YoutubeHttpStream: Requesting URL: {}", req_url);
+        tracing::debug!("YoutubeHttpStream: Headers: {:?}", self.headers);
+
         let resp = self.client
             .get(&req_url)
             .headers(self.headers.clone())
             .send()
             .await
             .map_err(|e| AudioStreamError::Fail(Box::new(e)))?;
+
+        tracing::debug!("YoutubeHttpStream: Response Status: {}", resp.status());
+        tracing::debug!("YoutubeHttpStream: Response Headers: {:?}", resp.headers());
 
         if !resp.status().is_success() {
             let msg: Box<dyn std::error::Error + Send + Sync + 'static> =
@@ -176,7 +182,7 @@ impl Compose for YoutubeHttpStream {
     async fn create_async(
         &mut self,
     ) -> Result<AudioStream<Box<dyn MediaSource>>, AudioStreamError> {
-        self.create_stream(None).await.map(|(input, hint)| {
+        self.create_stream(Some(0)).await.map(|(input, hint)| {
             let stream = AsyncAdapterStream::new(Box::new(input), 64 * 1024);
 
             AudioStream {

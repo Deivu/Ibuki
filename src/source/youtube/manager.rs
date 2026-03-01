@@ -296,10 +296,12 @@ impl YouTubeManager {
                 } else if let Ok(parsed_url) = url::Url::parse(url) {
                     if let Some((_, ip_val)) = parsed_url.query_pairs().find(|(k, _)| k == "ip") {
                         if ip_val.parse::<std::net::Ipv4Addr>().is_ok() {
+                            tracing::debug!("Binding stream client to IPv4 (0.0.0.0) for URL: {}", url);
                             builder = builder.local_address(std::net::IpAddr::V4(
                                 std::net::Ipv4Addr::UNSPECIFIED,
                             ));
                         } else if ip_val.parse::<std::net::Ipv6Addr>().is_ok() {
+                            tracing::debug!("Binding stream client to IPv6 (::0) for URL: {}", url);
                             builder = builder.local_address(std::net::IpAddr::V6(
                                 std::net::Ipv6Addr::UNSPECIFIED,
                             ));
