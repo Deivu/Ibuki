@@ -448,7 +448,22 @@ impl YouTubeManager {
                             }
                         }
                     }
-                    return Ok((final_url.clone(), build_stream_client(stream_headers.clone(), bound_ip, &final_url), stream_headers));
+                    let stream_client = build_stream_client(stream_headers.clone(), bound_ip, &final_url);
+                    let probe_url = if final_url.contains('?') {
+                        format!("{}&range=0-0", final_url)
+                    } else {
+                        format!("{}?range=0-0", final_url)
+                    };
+                    match stream_client.get(&probe_url).send().await {
+                        Ok(resp) if resp.status() == reqwest::StatusCode::FORBIDDEN => {
+                            debug!("CDN probe 403 for {} with {} - trying next client", video_id, client.name());
+                            last_error = ResolverError::Custom(format!("Stream CDN 403 for {} client", client.name()));
+                            continue;
+                        }
+                        Err(e) => warn!("CDN probe error for {} with {}: {:?} - proceeding anyway", video_id, client.name(), e),
+                        _ => {}
+                    }
+                    return Ok((final_url.clone(), stream_client, stream_headers));
                 } else if let Some(sig_cipher) = fmt.get("signatureCipher").and_then(|s| s.as_str())
                 {
                     debug!(
@@ -482,7 +497,22 @@ impl YouTubeManager {
                                         }
                                     }
                                 }
-                                return Ok((final_url.clone(), build_stream_client(stream_headers.clone(), bound_ip, &final_url), stream_headers));
+                                let stream_client = build_stream_client(stream_headers.clone(), bound_ip, &final_url);
+                                let probe_url = if final_url.contains('?') {
+                                    format!("{}&range=0-0", final_url)
+                                } else {
+                                    format!("{}?range=0-0", final_url)
+                                };
+                                match stream_client.get(&probe_url).send().await {
+                                    Ok(resp) if resp.status() == reqwest::StatusCode::FORBIDDEN => {
+                                        debug!("CDN probe 403 for {} with {} (cipher) - trying next client", video_id, client.name());
+                                        last_error = ResolverError::Custom(format!("Stream CDN 403 for {} client", client.name()));
+                                        continue;
+                                    }
+                                    Err(e) => warn!("CDN probe error for {} with {}: {:?} - proceeding anyway", video_id, client.name(), e),
+                                    _ => {}
+                                }
+                                return Ok((final_url.clone(), stream_client, stream_headers));
                             }
                             Err(e) => {
                                 warn!("Cipher resolution failed for {}: {:?}", client.name(), e);
