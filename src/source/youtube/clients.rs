@@ -21,7 +21,7 @@ pub struct InnertubeContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub third_party: Option<InnertubeThirdParty>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub request: Option<InnertubeRequest>,
+    pub user: Option<InnertubeUser>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -49,6 +49,16 @@ pub struct InnertubeClientInfo {
     pub config_info: Option<ConfigInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_screen: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub android_sdk_version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_density_float: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_height_points: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_pixel_density: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_width_points: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,9 +76,8 @@ pub struct InnertubeThirdParty {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InnertubeRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub use_ssl: Option<bool>,
+pub struct InnertubeUser {
+    pub locked_safety_mode: bool,
 }
 
 pub trait InnertubeClient: Send + Sync {
@@ -100,30 +109,35 @@ impl InnertubeClient for AndroidClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "ANDROID".to_string(),
-                client_version: "20.01.35".to_string(),
+                client_version: "19.44.38".to_string(),
                 user_agent: Some(
-                    "com.google.android.youtube/20.01.35 (Linux; U; Android 14) identity"
+                    "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip"
                         .to_string(),
                 ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
                 os_name: Some("Android".to_string()),
-                os_version: Some("14".to_string()),
+                os_version: Some("11".to_string()),
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: Some(30),
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
             (
                 "User-Agent".to_string(),
-                "com.google.android.youtube/20.01.35 (Linux; U; Android 14) identity".to_string(),
+                "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip".to_string(),
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
         ]
@@ -145,9 +159,9 @@ impl InnertubeClient for AndroidMusicClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "ANDROID_MUSIC".to_string(),
-                client_version: "7.27.52".to_string(),
+                client_version: "7.30.51".to_string(),
                 user_agent: Some(
-                    "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip"
+                    "com.google.android.apps.youtube.music/7.30.51 (Linux; U; Android 14) gzip"
                         .to_string(),
                 ),
                 gl: Some("US".to_string()),
@@ -159,16 +173,21 @@ impl InnertubeClient for AndroidMusicClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: Some(34),
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
             (
                 "User-Agent".to_string(),
-                "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip"
+                "com.google.android.apps.youtube.music/7.30.51 (Linux; U; Android 14) gzip"
                     .to_string(),
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
@@ -202,9 +221,14 @@ impl InnertubeClient for AndroidVrClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -246,9 +270,14 @@ impl InnertubeClient for IosClient {
                 client_form_factor: Some("SMALL_FORM_FACTOR".to_string()),
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -294,9 +323,14 @@ impl InnertubeClient for TvClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -334,6 +368,11 @@ impl InnertubeClient for TvEmbeddedClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: Some(InnertubeThirdParty {
                 fields: {
@@ -342,7 +381,7 @@ impl InnertubeClient for TvEmbeddedClient {
                     m
                 }
             }),
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -388,9 +427,14 @@ impl InnertubeClient for WebClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -431,9 +475,14 @@ impl InnertubeClient for WebRemixClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -471,6 +520,11 @@ impl InnertubeClient for WebEmbeddedClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: Some(InnertubeThirdParty {
                 fields: {
@@ -479,7 +533,7 @@ impl InnertubeClient for WebEmbeddedClient {
                     m
                 }
             }),
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -520,6 +574,11 @@ impl InnertubeClient for WebParentToolsClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: Some(InnertubeThirdParty {
                 fields: {
@@ -528,7 +587,7 @@ impl InnertubeClient for WebParentToolsClient {
                     m
                 }
             }),
-            request: Some(InnertubeRequest { use_ssl: Some(true) }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {

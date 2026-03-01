@@ -8,6 +8,8 @@ use crate::util::errors::ResolverError;
 use crate::util::http::is_bind_error;
 
 pub const YOUTUBE_API_URL: &str = "https://www.youtube.com/youtubei/v1";
+pub const SEARCH_PARAMS: &str = "EgIQAfABAQ==";
+pub const MUSIC_SEARCH_PARAMS: &str = "Eg-KAQwIARAAGAAgACgAMABqChADEAQQCRAFEAo=";
 
 pub struct InnertubeApi {
     http: Client,
@@ -128,6 +130,16 @@ impl InnertubeApi {
                 .as_object_mut()
                 .unwrap()
                 .insert("params".to_string(), json!(p));
+        } else if client.name().to_lowercase().contains("music") || client.name().to_lowercase().contains("remix") {
+             payload
+                .as_object_mut()
+                .unwrap()
+                .insert("params".to_string(), json!(MUSIC_SEARCH_PARAMS));
+        } else {
+             payload
+                .as_object_mut()
+                .unwrap()
+                .insert("params".to_string(), json!(SEARCH_PARAMS));
         }
 
         let mut context = client.context();
