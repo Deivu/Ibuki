@@ -276,8 +276,8 @@ impl YouTubeManager {
             if let Some(ip) = bound_ip {
                 stream_client_builder = stream_client_builder.local_address(ip);
             }
-            let mut headers = crate::util::headers::generate_headers().unwrap_or_default();
-            let ua_str = client.context().client.user_agent.unwrap_or_else(|| {
+            let mut headers = reqwest::header::HeaderMap::new();
+            let ua_str = client.context().client.user_agent.clone().unwrap_or_else(|| {
                 client.extra_headers()
                     .into_iter()
                     .find(|(k, _)| k.to_lowercase() == "user-agent")
