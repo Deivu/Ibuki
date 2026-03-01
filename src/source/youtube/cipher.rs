@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::Client;
 use serde_json::{Value, json};
 use tracing::{error, warn};
@@ -26,8 +28,13 @@ impl CipherManager {
             warn!("Cipher Server URL is missing! Signature deciphering will fail.");
         }
 
+        let http = Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_default();
+
         Self {
-            http: Client::new(),
+            http,
             server_url,
             auth_token,
         }
