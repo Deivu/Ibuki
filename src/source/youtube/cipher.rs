@@ -47,25 +47,29 @@ impl CipherManager {
         };
 
         let mut payload = json!({
-            "url": url,
-            "playerUrl": player_url,
+            "stream_url": url,
+            "player_url": player_url,
         });
 
         if let Some(s) = sp {
             payload
                 .as_object_mut()
                 .unwrap()
-                .insert("signature".to_string(), json!(s));
+                .insert("encrypted_signature".to_string(), json!(s));
         }
 
         if let Some(n) = n_param {
             payload
                 .as_object_mut()
                 .unwrap()
-                .insert("n".to_string(), json!(n));
+                .insert("n_param".to_string(), json!(n));
         }
 
-        let mut req = self.http.post(base_url).json(&payload);
+        let endpoint = format!(
+            "{}/resolve_url",
+            base_url.trim_end_matches('/')
+        );
+        let mut req = self.http.post(&endpoint).json(&payload);
 
         if let Some(token) = &self.auth_token {
             req = req.header("Authorization", token);
@@ -73,17 +77,32 @@ impl CipherManager {
 
         let res = req.send().await.map_err(ResolverError::Reqwest)?;
 
-        if !res.status().is_success() {
-            let status = res.status();
-            let text = res.text().await.unwrap_or_default();
-            error!("Cipher Server Error: {} - {}", status, text);
-            return Err(ResolverError::Custom(format!("Cipher Error: {}", status)));
-        }
-
+        let status = res.status();
         let body: Value = res.json().await.map_err(ResolverError::Reqwest)?;
 
-        if let Some(resolved) = body.get("resolved_url").and_then(|v| v.as_str()) {
-            Ok(resolved.to_string())
+        // Server returns {"success": false, "error": {...}} on failure
+        if !status.is_success() || body.get("success").and_then(|v| v.as_bool()) == Some(false) {
+            let msg = body
+                .get("error")
+                .and_then(|e| e.get("error"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown cipher error");
+            error!("Cipher Server Error: {} - {}", status, msg);
+            return Err(ResolverError::Custom(format!("Cipher Error: {}", msg)));
+        }
+
+        // Resolved URL may be at top level or nested under "data"
+        let resolved = body
+            .get("resolved_url")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                body.get("data")
+                    .and_then(|d| d.get("resolved_url"))
+                    .and_then(|v| v.as_str())
+            });
+
+        if let Some(url) = resolved {
+            Ok(url.to_string())
         } else {
             Err(ResolverError::Custom(
                 "Cipher Server returned no resolved_url".to_string(),
