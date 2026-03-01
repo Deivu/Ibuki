@@ -271,6 +271,27 @@ impl YouTubeManager {
                 continue;
             };
 
+            let mut stream_client_builder = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30));
+            if let Some(ip) = bound_ip {
+                stream_client_builder = stream_client_builder.local_address(ip);
+            }
+            let mut headers = crate::util::headers::generate_headers().unwrap_or_default();
+            let ua_str = client.context().client.user_agent.unwrap_or_else(|| {
+                client.extra_headers()
+                    .into_iter()
+                    .find(|(k, _)| k.to_lowercase() == "user-agent")
+                    .map(|(_, v)| v)
+                    .unwrap_or_else(|| "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string())
+            });
+            if let Ok(ua) = reqwest::header::HeaderValue::from_str(&ua_str) {
+                headers.insert(reqwest::header::USER_AGENT, ua);
+            }
+            let stream_client = stream_client_builder
+                .default_headers(headers)
+                .build()
+                .unwrap_or_else(|_| http_client.clone());
+
             let encrypted_host_flags = if client.name().to_lowercase().contains("embedded") {
                 self.fetch_encrypted_host_flags(video_id).await
             } else {
@@ -333,11 +354,13 @@ impl YouTubeManager {
             if let Some(fmt) = audio_format {
                 if let Some(url) = fmt.get("url").and_then(|u| u.as_str()) {
                     debug!("Found direct URL with {}", client.name());
+                    debug!("Raw direct URL: {}", url);
                     let mut final_url = url.to_string();
                     
                     let parsed: Result<url::Url, _> = url::Url::parse(url);
                     if let Ok(parsed_url) = parsed {
-                        let query_pairs: std::collections::HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
+                        let query_pairs: std::collections::HashMap<String, String> = parsed_url.query_pairs().into_owned().collect();
+                        debug!("Query pairs for direct url keys: {:?}", query_pairs.keys().collect::<Vec<_>>());
                         if let Some(n) = query_pairs.get("n") {
                             debug!("Found 'n' parameter in direct URL, attempting decipher");
                             match self
@@ -370,7 +393,7 @@ impl YouTubeManager {
                             final_url.push_str(&format!("?pot={}", po));
                         }
                     }
-                    return Ok((final_url, http_client));
+                    return Ok((final_url, stream_client));
                 } else if let Some(sig_cipher) = fmt.get("signatureCipher").and_then(|s| s.as_str())
                 {
                     debug!(
@@ -402,7 +425,7 @@ impl YouTubeManager {
                                         final_url.push_str(&format!("?pot={}", po));
                                     }
                                 }
-                                return Ok((final_url, http_client));
+                                return Ok((final_url, stream_client));
                             }
                             Err(e) => {
                                 warn!("Cipher resolution failed: {:?}", e);
