@@ -49,8 +49,8 @@ impl YoutubeHttpStream {
             let buffer_size = 11862014;
             let mut end = off + buffer_size;
             if let Some(clen) = self.content_length {
-                if end > clen {
-                    end = clen;
+                if end >= clen {
+                    end = clen - 1;
                 }
             }
             let range_str = format!("&range={}-{}", off, end);

@@ -253,7 +253,7 @@ impl YouTubeManager {
         Err(last_error)
     }
 
-    pub async fn make_playable(&self, video_id: &str) -> Result<(String, Client), ResolverError> {
+    pub async fn make_playable(&self, video_id: &str) -> Result<(String, Client, reqwest::header::HeaderMap), ResolverError> {
         let mut last_error =
             ResolverError::Custom("No clients configured for playback".to_string());
 
@@ -281,6 +281,12 @@ impl YouTubeManager {
             });
             if let Ok(ua) = reqwest::header::HeaderValue::from_str(&ua_str) {
                 headers.insert(reqwest::header::USER_AGENT, ua);
+            }
+
+            if let Some(visitor_id) = &visitor_data {
+                if let Ok(val) = reqwest::header::HeaderValue::from_str(visitor_id) {
+                    headers.insert("X-Goog-Visitor-Id", val);
+                }
             }
 
             for (key, value) in client.extra_headers() {
@@ -424,7 +430,7 @@ impl YouTubeManager {
                             }
                         }
                     }
-                    return Ok((final_url.clone(), build_stream_client(headers, bound_ip, &final_url)));
+                    return Ok((final_url.clone(), build_stream_client(headers.clone(), bound_ip, &final_url), headers));
                 } else if let Some(sig_cipher) = fmt.get("signatureCipher").and_then(|s| s.as_str())
                 {
                     debug!(
@@ -458,7 +464,7 @@ impl YouTubeManager {
                                         }
                                     }
                                 }
-                                return Ok((final_url.clone(), build_stream_client(headers, bound_ip, &final_url)));
+                                return Ok((final_url.clone(), build_stream_client(headers.clone(), bound_ip, &final_url), headers));
                             }
                             Err(e) => {
                                 warn!("Cipher resolution failed: {:?}", e);

@@ -317,11 +317,11 @@ impl Source for Youtube {
     }
 
     async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError> {
-        let (stream_url, client) = self.manager.make_playable(&track.info.identifier).await?;
+        let (stream_url, client, headers) = self.manager.make_playable(&track.info.identifier).await?;
         Ok(Input::from(crate::source::youtube::stream::YoutubeHttpStream::new(
             client, 
             stream_url, 
-            reqwest::header::HeaderMap::new()
+            headers
         )))
     }
 }
