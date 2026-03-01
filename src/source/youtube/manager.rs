@@ -98,6 +98,31 @@ impl YouTubeManager {
     pub async fn setup(&self) {
         info!("Setting up YouTube Manager...");
 
+        let youtube_config = CONFIG.youtube_config.as_ref();
+ 
+        if let Some(settings) = youtube_config.and_then(|c| c.clients.as_ref()).and_then(|c| c.settings.as_ref()) {
+            if let Some(tv_settings) = settings.get("TV") {
+                if let Some(token_val) = &tv_settings.refresh_token {
+                    let token = if let Some(s) = token_val.as_str() {
+                        Some(s.to_string())
+                    } else if let Some(a) = token_val.as_array().and_then(|a| a.first()).and_then(|v| v.as_str()) {
+                        Some(a.to_string())
+                    } else {
+                        None
+                    };
+ 
+                    if let Some(t) = token {
+                        let mut oauth = self.oauth.lock().await;
+                        oauth.set_refresh_token(t);
+                        match oauth.refresh_if_needed().await {
+                            Ok(_) => info!("YouTube OAuth initialized with TV refresh token."),
+                            Err(e) => warn!("YouTube OAuth initial refresh failed: {:?}", e),
+                        }
+                    }
+                }
+            }
+        }
+ 
         let mut sabr = self.sabr.lock().await;
         if let Some(visitor_data) = sabr.fetch_visitor_data().await {
             debug!("Initialized Visitor Data: {}", visitor_data);
@@ -141,6 +166,19 @@ impl YouTubeManager {
             .await
     }
 
+    pub async fn fetch_encrypted_host_flags(&self, video_id: &str) -> Option<String> {
+        let url = format!("https://www.youtube.com/embed/{}", video_id);
+        let res = self.http.get(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .send()
+            .await
+            .ok()?;
+        
+        let text = res.text().await.ok()?;
+        let re = regex::Regex::new(r#""encryptedHostFlags":"([^"]+)""#).ok()?;
+        re.captures(&text).and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
     pub async fn resolve_video(&self, video_id: &str) -> Result<Value, ResolverError> {
         let mut last_error =
             ResolverError::Custom("No clients configured for resolution".to_string());
@@ -158,17 +196,25 @@ impl YouTubeManager {
             };
             debug!("Attempting to resolve {} with {}", video_id, client.name());
 
+            let encrypted_host_flags = if client.name().to_lowercase().contains("embedded") {
+                self.fetch_encrypted_host_flags(video_id).await
+            } else {
+                None
+            };
+
             match self
                 .api
                 .player(
                     video_id,
                     client.as_ref(),
+                    client.player_params(),
                     None,
                     None,
                     visitor_data.as_deref(),
                     po_token.as_deref(),
                     oauth_token.as_deref(),
                     None,
+                    encrypted_host_flags.as_deref(),
                     &http_client,
                     bound_ip,
                 )
@@ -221,17 +267,25 @@ impl YouTubeManager {
                 continue;
             };
 
+            let encrypted_host_flags = if client.name().to_lowercase().contains("embedded") {
+                self.fetch_encrypted_host_flags(video_id).await
+            } else {
+                None
+            };
+
             let player_response = match self
                 .api
                 .player(
                     video_id,
                     client.as_ref(),
+                    client.player_params(),
                     None,
                     None,
                     visitor_data.as_deref(),
                     po_token.as_deref(),
                     oauth_token.as_deref(),
                     None,
+                    encrypted_host_flags.as_deref(),
                     &http_client,
                     bound_ip,
                 )
@@ -245,7 +299,9 @@ impl YouTubeManager {
             };
 
             let Some(streaming_data) = player_response.get("streamingData") else {
-                debug!("No streamingData for {} with {}", video_id, client.name());
+                let status = player_response.get("playabilityStatus").and_then(|s| s.get("status")).and_then(|s| s.as_str()).unwrap_or("UNKNOWN");
+                let reason = player_response.get("playabilityStatus").and_then(|s| s.get("reason")).and_then(|s| s.as_str()).unwrap_or("No reason provided");
+                debug!("No streamingData for {} with {}. Status: {}, Reason: {}", video_id, client.name(), status, reason);
                 continue;
             };
 
@@ -273,7 +329,15 @@ impl YouTubeManager {
             if let Some(fmt) = audio_format {
                 if let Some(url) = fmt.get("url").and_then(|u| u.as_str()) {
                     debug!("Found direct URL with {}", client.name());
-                    return Ok((url.to_string(), http_client));
+                    let mut final_url = url.to_string();
+                    if let Some(po) = &po_token {
+                        if final_url.contains('?') {
+                            final_url.push_str(&format!("&pot={}", po));
+                        } else {
+                            final_url.push_str(&format!("?pot={}", po));
+                        }
+                    }
+                    return Ok((final_url, http_client));
                 } else if let Some(sig_cipher) = fmt.get("signatureCipher").and_then(|s| s.as_str())
                 {
                     debug!(
@@ -296,7 +360,17 @@ impl YouTubeManager {
                             )
                             .await
                         {
-                            Ok(deciphered) => return Ok((deciphered, http_client)),
+                            Ok(deciphered) => {
+                                let mut final_url = deciphered;
+                                if let Some(po) = &po_token {
+                                    if final_url.contains('?') {
+                                        final_url.push_str(&format!("&pot={}", po));
+                                    } else {
+                                        final_url.push_str(&format!("?pot={}", po));
+                                    }
+                                }
+                                return Ok((final_url, http_client));
+                            }
                             Err(e) => {
                                 warn!("Cipher resolution failed: {:?}", e);
                                 continue;

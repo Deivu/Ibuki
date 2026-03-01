@@ -12,10 +12,11 @@ pub struct Sabr {
 
 impl Sabr {
     pub fn new(http: Client) -> Self {
+        let (po_token, visitor_data) = crate::CONFIG.youtube_config.as_ref().map(|c| (c.po_token.clone(), c.visitor_data.clone())).unwrap_or((None, None));
         Self {
             http,
-            visitor_data: None,
-            po_token: None,
+            visitor_data,
+            po_token,
         }
     }
 

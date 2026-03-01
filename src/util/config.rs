@@ -40,6 +40,8 @@ pub struct YoutubeConfig {
     pub target_itag: Option<u32>,
     pub get_oauth_token: Option<bool>,
     pub use_po_token: Option<bool>,
+    pub po_token: Option<String>,
+    pub visitor_data: Option<String>,
     pub hl: Option<String>,
     pub gl: Option<String>,
     pub cookies: Option<String>,

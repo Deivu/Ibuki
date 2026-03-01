@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use tracing::error;
 
-use super::clients::{InnertubeClient, InnertubeContext};
+use super::clients::{InnertubeClient, InnertubeContext, InnertubeThirdParty};
 use crate::util::errors::ResolverError;
 use crate::util::http::is_bind_error;
 
@@ -33,7 +33,9 @@ impl InnertubeApi {
         http_client: &Client,
         bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
-        let mut req_builder = http_client.post(format!("{}{}", YOUTUBE_API_URL, endpoint));
+        let mut req_builder = http_client.post(format!("{}{}", YOUTUBE_API_URL, endpoint))
+            .header("Cookie", "CONSENT=YES+cb.20210328-17-p0.en+FX+471");
+        
         for (k, v) in extra_headers {
             req_builder = req_builder.header(k, v);
         }
@@ -154,17 +156,21 @@ impl InnertubeApi {
         &self,
         video_id: &str,
         client: &dyn InnertubeClient,
+        params: Option<&str>,
         start_time: Option<u64>,
         playlist_id: Option<&str>,
         visitor_data: Option<&str>,
         po_token: Option<&str>,
         oauth_token: Option<&str>,
         signature_timestamp: Option<u32>,
+        encrypted_host_flags: Option<&str>,
         http_client: &Client,
         bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
         let mut payload = json!({
             "videoId": video_id,
+            "racyCheckOk": true,
+            "contentCheckOk": true,
             "playbackContext": {
                 "contentPlaybackContext": {
                     "autoCaptionsDefaultOn": false,
@@ -178,6 +184,20 @@ impl InnertubeApi {
                 }
             }
         });
+
+        if let Some(p) = params {
+            payload.as_object_mut().unwrap().insert("params".to_string(), json!(p));
+        }
+
+        if let Some(flags) = encrypted_host_flags {
+            if let Some(obj) = payload
+                .get_mut("playbackContext")
+                .and_then(|pc| pc.get_mut("contentPlaybackContext"))
+                .and_then(|cc| cc.as_object_mut())
+            {
+                obj.insert("encryptedHostFlags".to_string(), json!(flags));
+            }
+        }
 
         if let Some(pid) = playlist_id {
             payload
@@ -208,7 +228,19 @@ impl InnertubeApi {
             context.client.visitor_data = Some(vd.to_string());
         }
 
+        if oauth_token.is_none() {
+            context.client.client_screen = Some("EMBED".to_string());
+            let mut fields = serde_json::Map::new();
+            fields.insert("embedUrl".to_string(), json!("https://google.com"));
+            context.third_party = Some(InnertubeThirdParty { fields });
+        }
+
         let mut headers = client.extra_headers();
+        
+        if let Some(vd) = visitor_data {
+            headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
+        }
+
         if let Some(token) = oauth_token {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
         }
@@ -275,7 +307,19 @@ impl InnertubeApi {
             context.client.visitor_data = Some(vd.to_string());
         }
 
+        if oauth_token.is_none() {
+            context.client.client_screen = Some("EMBED".to_string());
+            let mut fields = serde_json::Map::new();
+            fields.insert("embedUrl".to_string(), json!("https://google.com"));
+            context.third_party = Some(InnertubeThirdParty { fields });
+        }
+
         let mut headers = client.extra_headers();
+        
+        if let Some(vd) = visitor_data {
+            headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
+        }
+
         if let Some(token) = oauth_token {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
         }

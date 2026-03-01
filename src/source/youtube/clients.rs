@@ -45,6 +45,8 @@ pub struct InnertubeClientInfo {
     pub client_form_factor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_info: Option<ConfigInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_screen: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -56,7 +58,8 @@ pub struct ConfigInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InnertubeThirdParty {
-    pub embed_url: String,
+    #[serde(flatten)]
+    pub fields: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -75,6 +78,9 @@ pub trait InnertubeClient: Send + Sync {
         Vec::new()
     }
     fn extra_payload(&self) -> Option<serde_json::Value> {
+        None
+    }
+    fn player_params(&self) -> Option<&'static str> {
         None
     }
 }
@@ -104,6 +110,7 @@ impl InnertubeClient for AndroidClient {
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: None,
             request: Some(InnertubeRequest { use_ssl: true }),
@@ -117,6 +124,9 @@ impl InnertubeClient for AndroidClient {
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
         ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAdgDAQ%3D%3D")
     }
 }
 
@@ -145,6 +155,7 @@ impl InnertubeClient for AndroidMusicClient {
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: None,
             request: Some(InnertubeRequest { use_ssl: true }),
@@ -159,6 +170,9 @@ impl InnertubeClient for AndroidMusicClient {
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
         ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAdgDAQ%3D%3D")
     }
 }
 
@@ -184,6 +198,7 @@ impl InnertubeClient for AndroidVrClient {
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: None,
             request: Some(InnertubeRequest { use_ssl: true }),
@@ -196,6 +211,9 @@ impl InnertubeClient for AndroidVrClient {
             ("X-YouTube-Client-Name".to_string(), "84".to_string()),
             ("X-YouTube-Client-Version".to_string(), "1.60.19".to_string()),
         ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAdgDAQ%3D%3D")
     }
 }
 
@@ -224,6 +242,7 @@ impl InnertubeClient for IosClient {
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: Some("SMALL_FORM_FACTOR".to_string()),
                 config_info: None,
+                client_screen: None,
             },
             third_party: None,
             request: Some(InnertubeRequest { use_ssl: true }),
@@ -271,6 +290,7 @@ impl InnertubeClient for TvClient {
                 platform: Some("TV".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: None,
             request: Some(InnertubeRequest { use_ssl: true }),
@@ -310,9 +330,14 @@ impl InnertubeClient for TvEmbeddedClient {
                 platform: Some("TV".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: Some(InnertubeThirdParty {
-                embed_url: "https://www.youtube.com/tv_embed".to_string(),
+                fields: {
+                    let mut m = serde_json::Map::new();
+                    m.insert("embedUrl".to_string(), serde_json::json!("https://www.youtube.com/tv_embed"));
+                    m
+                }
             }),
             request: Some(InnertubeRequest { use_ssl: true }),
         }
@@ -328,6 +353,9 @@ impl InnertubeClient for TvEmbeddedClient {
         Some(serde_json::json!({
             "attestationRequest": { "omitBotguardData": true }
         }))
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAQ%3D%3D")
     }
 }
 
@@ -356,6 +384,7 @@ impl InnertubeClient for WebClient {
                 platform: Some("DESKTOP".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: None,
             request: Some(InnertubeRequest { use_ssl: true }),
@@ -367,6 +396,9 @@ impl InnertubeClient for WebClient {
             ("Origin".to_string(), "https://www.youtube.com".to_string()),
             ("Referer".to_string(), "https://www.youtube.com/".to_string()),
         ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("2AMB")
     }
 }
 
@@ -395,6 +427,7 @@ impl InnertubeClient for WebRemixClient {
                 platform: Some("DESKTOP".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: None,
             request: Some(InnertubeRequest { use_ssl: true }),
@@ -434,9 +467,14 @@ impl InnertubeClient for WebEmbeddedClient {
                 platform: Some("DESKTOP".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: Some(InnertubeThirdParty {
-                embed_url: "https://www.youtube.com/embed".to_string(),
+                fields: {
+                    let mut m = serde_json::Map::new();
+                    m.insert("embedUrl".to_string(), serde_json::json!("https://www.youtube.com/embed"));
+                    m
+                }
             }),
             request: Some(InnertubeRequest { use_ssl: true }),
         }
@@ -447,6 +485,9 @@ impl InnertubeClient for WebEmbeddedClient {
             ("Origin".to_string(), "https://www.youtube.com".to_string()),
             ("Referer".to_string(), "https://www.youtube.com/embed".to_string()),
         ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("2AMB")
     }
 }
 
@@ -475,9 +516,14 @@ impl InnertubeClient for WebParentToolsClient {
                 platform: Some("DESKTOP".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
             },
             third_party: Some(InnertubeThirdParty {
-                embed_url: "https://www.youtube.com/embed".to_string(),
+                fields: {
+                    let mut m = serde_json::Map::new();
+                    m.insert("embedUrl".to_string(), serde_json::json!("https://www.youtube.com/embed"));
+                    m
+                }
             }),
             request: Some(InnertubeRequest { use_ssl: true }),
         }

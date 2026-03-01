@@ -1,21 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use tracing::{debug, error, info};
-
-use crate::util::errors::ResolverError;
-use crate::util::http::is_bind_error;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OauthToken {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_at: u64,
-    pub token_type: String,
-}
-
 pub struct YoutubeOAuth {
     http: Client,
     token: Option<OauthToken>,
@@ -28,6 +13,15 @@ impl YoutubeOAuth {
 
     pub fn set_token(&mut self, token: OauthToken) {
         self.token = Some(token);
+    }
+
+    pub fn set_refresh_token(&mut self, refresh_token: String) {
+        self.token = Some(OauthToken {
+            access_token: String::new(),
+            refresh_token,
+            expires_at: 0,
+            token_type: "Bearer".to_string(),
+        });
     }
 
     pub fn is_valid(&self) -> bool {
@@ -56,7 +50,8 @@ impl YoutubeOAuth {
 
         if let Some(token) = &self.token {
             debug!("Refreshing OAuth token...");
-            let new_token = self.refresh_access_token(&token.refresh_token).await?;
+            let refresh_token = token.refresh_token.clone();
+            let new_token = self.refresh_access_token(&refresh_token).await?;
             self.token = Some(new_token.clone());
             info!("OAuth token refreshed successfully.");
             Ok(Some(new_token.access_token))
@@ -69,9 +64,9 @@ impl YoutubeOAuth {
         let params = [
             (
                 "client_id",
-                "861556708454-d6dlm3lh05ig8aa4ea9398830989024p.apps.googleusercontent.com",
-            ), // Common YouTube TV client ID
-            ("client_secret", "S1M2-4-E34E"), // Common secret? Or none. TV client usually public.
+                "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com",
+            ), // Official Lavalink YouTube TV client ID
+            ("client_secret", "SboVhoG9s0rNafixCSGGKXAT"), // Official Lavalink secret
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
         ];
@@ -159,4 +154,19 @@ impl YoutubeOAuth {
             token_type: "Bearer".to_string(),
         })
     }
+}
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tracing::{debug, error, info};
+
+use crate::util::errors::ResolverError;
+use crate::util::http::is_bind_error;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OauthToken {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at: u64,
+    pub token_type: String,
 }
