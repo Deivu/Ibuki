@@ -272,6 +272,7 @@ impl YouTubeManager {
             };
 
             let mut headers = reqwest::header::HeaderMap::new();
+            let mut stream_headers = reqwest::header::HeaderMap::new();
             let ua_str = client.context().client.user_agent.clone().unwrap_or_else(|| {
                 client.extra_headers()
                     .into_iter()
@@ -280,7 +281,8 @@ impl YouTubeManager {
                     .unwrap_or_else(|| "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string())
             });
             if let Ok(ua) = reqwest::header::HeaderValue::from_str(&ua_str) {
-                headers.insert(reqwest::header::USER_AGENT, ua);
+                headers.insert(reqwest::header::USER_AGENT, ua.clone());
+                stream_headers.insert(reqwest::header::USER_AGENT, ua);
             }
 
             if let Some(visitor_id) = &visitor_data {
@@ -294,7 +296,12 @@ impl YouTubeManager {
                     reqwest::header::HeaderName::from_bytes(key.as_bytes()),
                     reqwest::header::HeaderValue::from_str(&value),
                 ) {
-                    headers.insert(name, val);
+                    headers.insert(name.clone(), val.clone());
+                    
+                    let lower_key = key.to_lowercase();
+                    if lower_key == "user-agent" || lower_key == "referer" || lower_key == "origin" {
+                        stream_headers.insert(name, val);
+                    }
                 }
             }
 
@@ -430,7 +437,7 @@ impl YouTubeManager {
                             }
                         }
                     }
-                    return Ok((final_url.clone(), build_stream_client(headers.clone(), bound_ip, &final_url), headers));
+                    return Ok((final_url.clone(), build_stream_client(stream_headers.clone(), bound_ip, &final_url), stream_headers));
                 } else if let Some(sig_cipher) = fmt.get("signatureCipher").and_then(|s| s.as_str())
                 {
                     debug!(
@@ -464,7 +471,7 @@ impl YouTubeManager {
                                         }
                                     }
                                 }
-                                return Ok((final_url.clone(), build_stream_client(headers.clone(), bound_ip, &final_url), headers));
+                                return Ok((final_url.clone(), build_stream_client(stream_headers.clone(), bound_ip, &final_url), stream_headers));
                             }
                             Err(e) => {
                                 warn!("Cipher resolution failed: {:?}", e);
