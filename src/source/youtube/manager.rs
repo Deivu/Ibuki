@@ -143,7 +143,7 @@ impl YouTubeManager {
             .search_clients
             .first()
             .cloned()
-            .unwrap_or("Android".to_string());
+            .unwrap_or("Web".to_string());
         let client = self
             .get_innertube_client(&client_name)
             .ok_or(ResolverError::Custom(

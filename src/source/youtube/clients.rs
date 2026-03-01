@@ -100,6 +100,8 @@ pub trait InnertubeClient: Send + Sync {
 // ---------------------------
 // ANDROID
 // ---------------------------
+// NOTE: Lavalink marks this client as "ANDROID is broken with no known fix.
+// It is no longer advised to use this client."
 pub struct AndroidClient;
 impl InnertubeClient for AndroidClient {
     fn name(&self) -> &'static str {
@@ -221,7 +223,7 @@ impl InnertubeClient for AndroidVrClient {
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
-                android_sdk_version: None,
+                android_sdk_version: Some(32),
                 screen_density_float: None,
                 screen_height_points: None,
                 screen_pixel_density: None,
@@ -416,22 +418,22 @@ impl InnertubeClient for WebClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "WEB".to_string(),
-                client_version: "2.20241223.01.00".to_string(),
-                user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36".to_string()),
+                client_version: "2.20250403.01.00".to_string(),
+                user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
-                os_name: Some("Windows".to_string()),
-                os_version: Some("10.0".to_string()),
-                platform: Some("DESKTOP".to_string()),
+                os_name: None,
+                os_version: None,
+                platform: None,
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
                 android_sdk_version: None,
-                screen_density_float: None,
-                screen_height_points: None,
-                screen_pixel_density: None,
-                screen_width_points: None,
+                screen_density_float: Some(1.0),
+                screen_height_points: Some(1080),
+                screen_pixel_density: Some(1),
+                screen_width_points: Some(1920),
             },
             third_party: None,
             user: Some(InnertubeUser { locked_safety_mode: false }),
@@ -464,22 +466,22 @@ impl InnertubeClient for WebRemixClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "WEB_REMIX".to_string(),
-                client_version: "1.20241223.01.00".to_string(),
-                user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36".to_string()),
+                client_version: "1.20240724.00.00".to_string(),
+                user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
-                os_name: Some("Windows".to_string()),
-                os_version: Some("10.0".to_string()),
-                platform: Some("DESKTOP".to_string()),
+                os_name: None,
+                os_version: None,
+                platform: None,
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
                 android_sdk_version: None,
-                screen_density_float: None,
-                screen_height_points: None,
-                screen_pixel_density: None,
-                screen_width_points: None,
+                screen_density_float: Some(1.0),
+                screen_height_points: Some(1080),
+                screen_pixel_density: Some(1),
+                screen_width_points: Some(1920),
             },
             third_party: None,
             user: Some(InnertubeUser { locked_safety_mode: false }),
