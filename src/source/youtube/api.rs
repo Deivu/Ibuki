@@ -256,11 +256,16 @@ impl InnertubeApi {
             context.client.visitor_data = Some(vd.to_string());
         }
 
-        if oauth_token.is_none() || !client.supports_oauth() {
+        // Only force embed context for browser-based web clients.
+        // Mobile clients (IOS, Android, AndroidVR, etc.) and TV clients with their own
+        // third_party already set must NOT have this overridden.
+        if client.use_embed_context() && (oauth_token.is_none() || !client.supports_oauth()) {
             context.client.client_screen = Some("EMBED".to_string());
-            let mut fields = serde_json::Map::new();
-            fields.insert("embedUrl".to_string(), json!("https://google.com"));
-            context.third_party = Some(InnertubeThirdParty { fields });
+            if context.third_party.is_none() {
+                let mut fields = serde_json::Map::new();
+                fields.insert("embedUrl".to_string(), json!("https://google.com"));
+                context.third_party = Some(InnertubeThirdParty { fields });
+            }
         }
 
         let mut headers = client.extra_headers();

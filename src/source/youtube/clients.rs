@@ -101,6 +101,12 @@ pub trait InnertubeClient: Send + Sync {
     fn requires_pot(&self) -> bool {
         false
     }
+    /// Whether api.rs should force clientScreen=EMBED + thirdParty on this client.
+    /// Mobile clients (IOS, Android, AndroidVR, etc.) do NOT want this — only
+    /// browser-based Web clients use embed context.
+    fn use_embed_context(&self) -> bool {
+        false
+    }
 }
 
 // ---------------------------
@@ -303,6 +309,9 @@ impl InnertubeClient for IosClient {
             ),
         ]
     }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAdgDAQ%3D%3D")
+    }
 }
 
 // ---------------------------
@@ -402,6 +411,9 @@ impl InnertubeClient for TvEmbeddedClient {
             ("Referer".to_string(), "https://www.youtube.com/tv_embed".to_string()),
         ]
     }
+    fn use_embed_context(&self) -> bool {
+        true
+    }
     fn extra_payload(&self) -> Option<serde_json::Value> {
         Some(serde_json::json!({
             "attestationRequest": { "omitBotguardData": true }
@@ -424,6 +436,9 @@ impl InnertubeClient for WebClient {
         true
     }
     fn requires_pot(&self) -> bool {
+        true
+    }
+    fn use_embed_context(&self) -> bool {
         true
     }
     fn context(&self) -> InnertubeContext {
@@ -477,6 +492,9 @@ impl InnertubeClient for WebRemixClient {
     fn requires_pot(&self) -> bool {
         true
     }
+    fn use_embed_context(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -523,6 +541,9 @@ impl InnertubeClient for WebEmbeddedClient {
         true
     }
     fn requires_pot(&self) -> bool {
+        true
+    }
+    fn use_embed_context(&self) -> bool {
         true
     }
     fn context(&self) -> InnertubeContext {
@@ -580,6 +601,9 @@ impl InnertubeClient for WebParentToolsClient {
         true
     }
     fn requires_pot(&self) -> bool {
+        true
+    }
+    fn use_embed_context(&self) -> bool {
         true
     }
     fn context(&self) -> InnertubeContext {

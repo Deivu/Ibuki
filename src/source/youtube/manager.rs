@@ -425,11 +425,15 @@ impl YouTubeManager {
                                 Ok(deciphered) => final_url = deciphered,
                                 Err(e) => {
                                     warn!("N-parameter decipher failed for {}: {:?}", client.name(), e);
-                                    // if cipher fails, allow the request to potentially try failing with 403, and Lavalink behavior falls back to next client? 
-                                    // Wait, we shouldn't continue and abort the current client. We can just use the raw url and let it natively fail, or we can `continue;` to the next client! 
-                                    // Lavalink tries the stream format and if cipher fails, it skips it.
-                                    last_error = e;
-                                    continue;
+                                    // For clients that require cipher (TV/Web), cipher failure means the URL
+                                    // will be broken — skip to next client.
+                                    // For mobile clients (IOS, AndroidVR) that don't strictly need cipher,
+                                    // fall back to raw URL (stream may be throttled but still functional).
+                                    if client.needs_cipher() {
+                                        last_error = e;
+                                        continue;
+                                    }
+                                    // fall through with raw final_url
                                 }
                             }
                         }
@@ -481,7 +485,10 @@ impl YouTubeManager {
                                 return Ok((final_url.clone(), build_stream_client(stream_headers.clone(), bound_ip, &final_url), stream_headers));
                             }
                             Err(e) => {
-                                warn!("Cipher resolution failed: {:?}", e);
+                                warn!("Cipher resolution failed for {}: {:?}", client.name(), e);
+                                // signatureCipher always requires the deciphered sig — there is no
+                                // usable raw URL to fall back to, so always skip to next client.
+                                last_error = e;
                                 continue;
                             }
                         }
