@@ -1,9 +1,4 @@
-use axum::{
-    Json,
-    extract::Path,
-    http::StatusCode,
-    response::IntoResponse,
-};
+use axum::{Json, extract::Path, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
 use crate::source::youtube::YOUTUBE_MANAGER;
@@ -83,9 +78,7 @@ pub async fn update_youtube_config(
     StatusCode::NO_CONTENT.into_response()
 }
 
-pub async fn get_youtube_oauth_token(
-    Path(refresh_token): Path<String>,
-) -> impl IntoResponse {
+pub async fn get_youtube_oauth_token(Path(refresh_token): Path<String>) -> impl IntoResponse {
     let Some(manager) = YOUTUBE_MANAGER.get() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -94,7 +87,10 @@ pub async fn get_youtube_oauth_token(
             .into_response();
     };
 
-    match manager.create_access_token_from_refresh(&refresh_token).await {
+    match manager
+        .create_access_token_from_refresh(&refresh_token)
+        .await
+    {
         Ok(token) => Json(serde_json::json!({
             "accessToken":  token.access_token,
             "expiresAt":    token.expires_at,

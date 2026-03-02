@@ -35,9 +35,10 @@ impl InnertubeApi {
         http_client: &Client,
         bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
-        let mut req_builder = http_client.post(format!("{}{}", YOUTUBE_API_URL, endpoint))
+        let mut req_builder = http_client
+            .post(format!("{}{}", YOUTUBE_API_URL, endpoint))
             .header("Cookie", "CONSENT=YES+cb.20210328-17-p0.en+FX+471");
-        
+
         for (k, v) in extra_headers {
             req_builder = req_builder.header(k, v);
         }
@@ -54,7 +55,10 @@ impl InnertubeApi {
 
         tracing::debug!("InnerTube Request ({}):", endpoint);
         tracing::debug!("  Headers: {:?}", extra_headers);
-        tracing::debug!("  Payload: {}", serde_json::to_string(&final_payload).unwrap_or_default());
+        tracing::debug!(
+            "  Payload: {}",
+            serde_json::to_string(&final_payload).unwrap_or_default()
+        );
 
         let res = req_builder.json(&final_payload).send().await;
 
@@ -131,13 +135,15 @@ impl InnertubeApi {
                 .as_object_mut()
                 .unwrap()
                 .insert("params".to_string(), json!(p));
-        } else if client.name().to_lowercase().contains("music") || client.name().to_lowercase().contains("remix") {
-             payload
+        } else if client.name().to_lowercase().contains("music")
+            || client.name().to_lowercase().contains("remix")
+        {
+            payload
                 .as_object_mut()
                 .unwrap()
                 .insert("params".to_string(), json!(MUSIC_SEARCH_PARAMS));
         } else {
-             payload
+            payload
                 .as_object_mut()
                 .unwrap()
                 .insert("params".to_string(), json!(SEARCH_PARAMS));
@@ -214,7 +220,10 @@ impl InnertubeApi {
         });
 
         if let Some(p) = params {
-            payload.as_object_mut().unwrap().insert("params".to_string(), json!(p));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("params".to_string(), json!(p));
         }
 
         if let Some(flags) = encrypted_host_flags {
@@ -266,7 +275,7 @@ impl InnertubeApi {
         }
 
         let mut headers = client.extra_headers();
-        
+
         if let Some(vd) = visitor_data {
             headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
         }
@@ -347,7 +356,7 @@ impl InnertubeApi {
         }
 
         let mut headers = client.extra_headers();
-        
+
         if let Some(vd) = visitor_data {
             headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
         }

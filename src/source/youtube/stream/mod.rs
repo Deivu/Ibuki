@@ -1,20 +1,22 @@
 use async_trait::async_trait;
+use futures::TryStreamExt;
+use pin_project::pin_project;
 use reqwest::{
-    header::{HeaderMap, CONTENT_LENGTH, CONTENT_TYPE, RETRY_AFTER},
     Client,
+    header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, RETRY_AFTER},
 };
-use songbird::input::{AsyncAdapterStream, AsyncMediaSource, AudioStream, AudioStreamError, Compose, Input};
+use songbird::input::{
+    AsyncAdapterStream, AsyncMediaSource, AudioStream, AudioStreamError, Compose, Input,
+};
 use std::{
     io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, SeekFrom},
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
 };
-use pin_project::pin_project;
 use symphonia::core::{io::MediaSource, probe::Hint};
 use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
 use tokio_util::io::StreamReader;
-use futures::TryStreamExt;
 
 #[derive(Clone, Debug)]
 pub struct YoutubeHttpStream {
@@ -54,7 +56,7 @@ impl YoutubeHttpStream {
                 }
             }
             let range_str = format!("&range={}-{}", off, end);
-            
+
             if req_url.contains('?') {
                 req_url.push_str(&range_str);
             } else {
@@ -62,7 +64,8 @@ impl YoutubeHttpStream {
             }
         }
 
-        let resp = self.client
+        let resp = self
+            .client
             .get(&req_url)
             .headers(self.headers.clone())
             .send()

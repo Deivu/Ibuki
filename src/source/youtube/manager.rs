@@ -97,18 +97,25 @@ impl YouTubeManager {
         info!("Setting up YouTube Manager...");
 
         let youtube_config = CONFIG.youtube_config.as_ref();
- 
-        if let Some(settings) = youtube_config.and_then(|c| c.clients.as_ref()).and_then(|c| c.settings.as_ref()) {
+
+        if let Some(settings) = youtube_config
+            .and_then(|c| c.clients.as_ref())
+            .and_then(|c| c.settings.as_ref())
+        {
             if let Some(tv_settings) = settings.get("TV") {
                 if let Some(token_val) = &tv_settings.refresh_token {
                     let token = if let Some(s) = token_val.as_str() {
                         Some(s.to_string())
-                    } else if let Some(a) = token_val.as_array().and_then(|a| a.first()).and_then(|v| v.as_str()) {
+                    } else if let Some(a) = token_val
+                        .as_array()
+                        .and_then(|a| a.first())
+                        .and_then(|v| v.as_str())
+                    {
                         Some(a.to_string())
                     } else {
                         None
                     };
- 
+
                     if let Some(t) = token {
                         let mut oauth = self.oauth.lock().await;
                         oauth.set_refresh_token(t);
@@ -120,7 +127,7 @@ impl YouTubeManager {
                 }
             }
         }
- 
+
         let mut sabr = self.sabr.lock().await;
         if let Some(visitor_data) = sabr.fetch_visitor_data().await {
             debug!("Initialized Visitor Data: {}", visitor_data);
@@ -175,10 +182,11 @@ impl YouTubeManager {
             .send()
             .await
             .ok()?;
-        
+
         let text = res.text().await.ok()?;
         let re = regex::Regex::new(r#""encryptedHostFlags":"([^"]+)""#).ok()?;
-        re.captures(&text).and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+        re.captures(&text)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
     pub async fn resolve_video(&self, video_id: &str) -> Result<Value, ResolverError> {
@@ -251,7 +259,10 @@ impl YouTubeManager {
         Err(last_error)
     }
 
-    pub async fn make_playable(&self, video_id: &str) -> Result<(String, Client, reqwest::header::HeaderMap), ResolverError> {
+    pub async fn make_playable(
+        &self,
+        video_id: &str,
+    ) -> Result<(String, Client, reqwest::header::HeaderMap), ResolverError> {
         let mut last_error =
             ResolverError::Custom("No clients configured for playback".to_string());
         let (visitor_data, po_token) = {
@@ -279,7 +290,7 @@ impl YouTubeManager {
             if let Ok(ua) = reqwest::header::HeaderValue::from_str(&ua_str) {
                 headers.insert(reqwest::header::USER_AGENT, ua);
             }
-            
+
             let stream_ua = ua_str.replace(" gzip", "");
             if let Ok(ua) = reqwest::header::HeaderValue::from_str(&stream_ua) {
                 stream_headers.insert(reqwest::header::USER_AGENT, ua);
@@ -299,14 +310,17 @@ impl YouTubeManager {
                 ) {
                     headers.insert(name.clone(), val.clone());
                     let lower_key = key.to_lowercase();
-                    if lower_key == "user-agent" || lower_key == "referer" || lower_key == "origin" || lower_key == "x-goog-visitor-id" {
+                    if lower_key == "user-agent"
+                        || lower_key == "referer"
+                        || lower_key == "origin"
+                        || lower_key == "x-goog-visitor-id"
+                    {
                         if !stream_headers.contains_key(&name) {
                             stream_headers.insert(name, val);
                         }
                     }
                 }
             }
-
 
             let build_stream_client = |headers: reqwest::header::HeaderMap,
                                        bound_ip: Option<std::net::IpAddr>,
@@ -321,7 +335,10 @@ impl YouTubeManager {
                 } else if let Ok(parsed_url) = url::Url::parse(url) {
                     if let Some((_, ip_val)) = parsed_url.query_pairs().find(|(k, _)| k == "ip") {
                         if ip_val.parse::<std::net::Ipv4Addr>().is_ok() {
-                            tracing::debug!("Binding stream client to IPv4 (0.0.0.0) for URL: {}", url);
+                            tracing::debug!(
+                                "Binding stream client to IPv4 (0.0.0.0) for URL: {}",
+                                url
+                            );
                             builder = builder.local_address(std::net::IpAddr::V4(
                                 std::net::Ipv4Addr::UNSPECIFIED,
                             ));
@@ -369,9 +386,23 @@ impl YouTubeManager {
             };
 
             let Some(streaming_data) = player_response.get("streamingData") else {
-                let status = player_response.get("playabilityStatus").and_then(|s| s.get("status")).and_then(|s| s.as_str()).unwrap_or("UNKNOWN");
-                let reason = player_response.get("playabilityStatus").and_then(|s| s.get("reason")).and_then(|s| s.as_str()).unwrap_or("No reason provided");
-                debug!("No streamingData for {} with {}. Status: {}, Reason: {}", video_id, client.name(), status, reason);
+                let status = player_response
+                    .get("playabilityStatus")
+                    .and_then(|s| s.get("status"))
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("UNKNOWN");
+                let reason = player_response
+                    .get("playabilityStatus")
+                    .and_then(|s| s.get("reason"))
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("No reason provided");
+                debug!(
+                    "No streamingData for {} with {}. Status: {}, Reason: {}",
+                    video_id,
+                    client.name(),
+                    status,
+                    reason
+                );
                 continue;
             };
 
@@ -401,25 +432,25 @@ impl YouTubeManager {
                     debug!("Found direct URL with {}", client.name());
                     debug!("Raw direct URL: {}", url);
                     let mut final_url = url.to_string();
-                    
+
                     let parsed: Result<url::Url, _> = url::Url::parse(url);
                     if let Ok(parsed_url) = parsed {
-                        let query_pairs: std::collections::HashMap<String, String> = parsed_url.query_pairs().into_owned().collect();
-                        debug!("Query pairs for direct url keys: {:?}", query_pairs.keys().collect::<Vec<_>>());
+                        let query_pairs: std::collections::HashMap<String, String> =
+                            parsed_url.query_pairs().into_owned().collect();
+                        debug!(
+                            "Query pairs for direct url keys: {:?}",
+                            query_pairs.keys().collect::<Vec<_>>()
+                        );
                         if let Some(n) = query_pairs.get("n") {
                             debug!("Found 'n' parameter in direct URL, attempting decipher");
-                            match self
-                                .cipher
-                                .resolve_url(
-                                    url,
-                                    None,
-                                    Some(n),
-                                )
-                                .await
-                            {
+                            match self.cipher.resolve_url(url, None, Some(n)).await {
                                 Ok(deciphered) => final_url = deciphered,
                                 Err(e) => {
-                                    warn!("N-parameter decipher failed for {}: {:?}", client.name(), e);
+                                    warn!(
+                                        "N-parameter decipher failed for {}: {:?}",
+                                        client.name(),
+                                        e
+                                    );
                                     if client.needs_cipher() {
                                         last_error = e;
                                         continue;
@@ -438,7 +469,8 @@ impl YouTubeManager {
                             }
                         }
                     }
-                    let stream_client = build_stream_client(stream_headers.clone(), bound_ip, &final_url);
+                    let stream_client =
+                        build_stream_client(stream_headers.clone(), bound_ip, &final_url);
                     let probe_url = if final_url.contains('?') {
                         format!("{}&range=0-0", final_url)
                     } else {
@@ -446,11 +478,23 @@ impl YouTubeManager {
                     };
                     match stream_client.get(&probe_url).send().await {
                         Ok(resp) if resp.status() == reqwest::StatusCode::FORBIDDEN => {
-                            debug!("CDN probe 403 for {} with {} - trying next client", video_id, client.name());
-                            last_error = ResolverError::Custom(format!("Stream CDN 403 for {} client", client.name()));
+                            debug!(
+                                "CDN probe 403 for {} with {} - trying next client",
+                                video_id,
+                                client.name()
+                            );
+                            last_error = ResolverError::Custom(format!(
+                                "Stream CDN 403 for {} client",
+                                client.name()
+                            ));
                             continue;
                         }
-                        Err(e) => warn!("CDN probe error for {} with {}: {:?} - proceeding anyway", video_id, client.name(), e),
+                        Err(e) => warn!(
+                            "CDN probe error for {} with {}: {:?} - proceeding anyway",
+                            video_id,
+                            client.name(),
+                            e
+                        ),
                         _ => {}
                     }
                     return Ok((final_url.clone(), stream_client, stream_headers));
@@ -468,11 +512,7 @@ impl YouTubeManager {
                     if let (Some(url), Some(sig)) = (params.get("url"), params.get("s")) {
                         match self
                             .cipher
-                            .resolve_url(
-                                url,
-                                Some(sig),
-                                params.get("n").map(|s| s.as_str()),
-                            )
+                            .resolve_url(url, Some(sig), params.get("n").map(|s| s.as_str()))
                             .await
                         {
                             Ok(deciphered) => {
@@ -486,7 +526,11 @@ impl YouTubeManager {
                                         }
                                     }
                                 }
-                                let stream_client = build_stream_client(stream_headers.clone(), bound_ip, &final_url);
+                                let stream_client = build_stream_client(
+                                    stream_headers.clone(),
+                                    bound_ip,
+                                    &final_url,
+                                );
                                 let probe_url = if final_url.contains('?') {
                                     format!("{}&range=0-0", final_url)
                                 } else {
@@ -494,11 +538,23 @@ impl YouTubeManager {
                                 };
                                 match stream_client.get(&probe_url).send().await {
                                     Ok(resp) if resp.status() == reqwest::StatusCode::FORBIDDEN => {
-                                        debug!("CDN probe 403 for {} with {} (cipher) - trying next client", video_id, client.name());
-                                        last_error = ResolverError::Custom(format!("Stream CDN 403 for {} client", client.name()));
+                                        debug!(
+                                            "CDN probe 403 for {} with {} (cipher) - trying next client",
+                                            video_id,
+                                            client.name()
+                                        );
+                                        last_error = ResolverError::Custom(format!(
+                                            "Stream CDN 403 for {} client",
+                                            client.name()
+                                        ));
                                         continue;
                                     }
-                                    Err(e) => warn!("CDN probe error for {} with {}: {:?} - proceeding anyway", video_id, client.name(), e),
+                                    Err(e) => warn!(
+                                        "CDN probe error for {} with {}: {:?} - proceeding anyway",
+                                        video_id,
+                                        client.name(),
+                                        e
+                                    ),
                                     _ => {}
                                 }
                                 return Ok((final_url.clone(), stream_client, stream_headers));
@@ -531,11 +587,7 @@ impl YouTubeManager {
         sabr.set_visitor_data(visitor_data);
     }
 
-    pub async fn set_oauth_refresh_token(
-        &self,
-        refresh_token: String,
-        skip_initialization: bool,
-    ) {
+    pub async fn set_oauth_refresh_token(&self, refresh_token: String, skip_initialization: bool) {
         let mut oauth = self.oauth.lock().await;
         oauth.set_refresh_token(refresh_token);
         if !skip_initialization {
@@ -590,8 +642,8 @@ impl YouTubeManager {
             )
             .await?;
 
-        let playlist_name = extract_playlist_name(&response)
-            .unwrap_or_else(|| playlist_id.to_string());
+        let playlist_name =
+            extract_playlist_name(&response).unwrap_or_else(|| playlist_id.to_string());
 
         let mut all_videos: Vec<Value> = Vec::new();
         extract_playlist_videos(&response, &mut all_videos);
@@ -625,7 +677,6 @@ impl YouTubeManager {
         Ok((playlist_name, all_videos))
     }
 }
-
 
 fn extract_playlist_name(json: &Value) -> Option<String> {
     json.get("header")

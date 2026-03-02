@@ -117,8 +117,7 @@ impl InnertubeClient for AndroidClient {
                 client_name: "ANDROID".to_string(),
                 client_version: "19.44.38".to_string(),
                 user_agent: Some(
-                    "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip"
-                        .to_string(),
+                    "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip".to_string(),
                 ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
@@ -136,7 +135,9 @@ impl InnertubeClient for AndroidClient {
                 screen_width_points: None,
             },
             third_party: None,
-            user: Some(InnertubeUser { locked_safety_mode: false }),
+            user: Some(InnertubeUser {
+                locked_safety_mode: false,
+            }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -147,7 +148,10 @@ impl InnertubeClient for AndroidClient {
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
             ("X-YouTube-Client-Name".to_string(), "3".to_string()),
-            ("X-YouTube-Client-Version".to_string(), "19.44.38".to_string()),
+            (
+                "X-YouTube-Client-Version".to_string(),
+                "19.44.38".to_string(),
+            ),
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
@@ -185,7 +189,9 @@ impl InnertubeClient for AndroidMusicClient {
                 screen_width_points: None,
             },
             third_party: None,
-            user: Some(InnertubeUser { locked_safety_mode: false }),
+            user: Some(InnertubeUser {
+                locked_safety_mode: false,
+            }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -276,7 +282,9 @@ impl InnertubeClient for IosClient {
                 screen_width_points: None,
             },
             third_party: None,
-            user: Some(InnertubeUser { locked_safety_mode: false }),
+            user: Some(InnertubeUser {
+                locked_safety_mode: false,
+            }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {

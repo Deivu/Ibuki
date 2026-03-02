@@ -255,9 +255,7 @@ impl Source for Youtube {
 
     async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError> {
         let yt_cfg = crate::CONFIG.youtube_config.as_ref();
-        let allow_search = yt_cfg
-            .and_then(|c| c.allow_search)
-            .unwrap_or(true);
+        let allow_search = yt_cfg.and_then(|c| c.allow_search).unwrap_or(true);
         let allow_direct_video_ids = yt_cfg
             .and_then(|c| c.allow_direct_video_ids)
             .unwrap_or(true);
@@ -314,15 +312,11 @@ impl Source for Youtube {
                         .find(|(k, _)| k == "v")
                         .map(|(_, v)| v.to_string())
                         .or_else(|| {
-                            let path_segments: Vec<_> = u
-                                .path_segments()
-                                .map(|s| s.collect())
-                                .unwrap_or_default();
+                            let path_segments: Vec<_> =
+                                u.path_segments().map(|s| s.collect()).unwrap_or_default();
                             if u.host_str() == Some("youtu.be") {
                                 path_segments.first().map(|s| s.to_string())
-                            } else if path_segments.first().map(|s| *s)
-                                == Some("shorts")
-                            {
+                            } else if path_segments.first().map(|s| *s) == Some("shorts") {
                                 path_segments.get(1).map(|s| s.to_string())
                             } else {
                                 None
@@ -355,7 +349,9 @@ impl Source for Youtube {
                 };
 
                 if vid.len() != 11
-                    || !vid.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                    || !vid
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
                 {
                     warn!("YouTube: Invalid video ID extracted: {}", vid);
                     return Ok(None);
@@ -382,15 +378,10 @@ impl Source for Youtube {
         let (stream_url, client, headers) =
             self.manager.make_playable(&track.info.identifier).await?;
         Ok(Input::from(
-            crate::source::youtube::stream::YoutubeHttpStream::new(
-                client,
-                stream_url,
-                headers,
-            ),
+            crate::source::youtube::stream::YoutubeHttpStream::new(client, stream_url, headers),
         ))
     }
 }
-
 
 impl Youtube {
     async fn resolve_playlist(

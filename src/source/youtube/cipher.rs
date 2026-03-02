@@ -75,7 +75,10 @@ impl CipherManager {
             .http
             .get("https://www.youtube.com/embed/")
             .header("User-Agent", browser_ua)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
             .header("Accept-Language", "en-US,en;q=0.5")
             .send()
             .await
@@ -119,18 +122,30 @@ impl CipherManager {
         ];
 
         for source in &fallback_sources {
-            let resp = match self.http.get(*source)
+            let resp = match self
+                .http
+                .get(*source)
                 .header("User-Agent", browser_ua)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
                 .header("Accept-Language", "en-US,en;q=0.5")
-                .send().await
+                .send()
+                .await
             {
                 Ok(r) => r,
-                Err(e) => { warn!("Failed to fetch {}: {:?}", source, e); continue; }
+                Err(e) => {
+                    warn!("Failed to fetch {}: {:?}", source, e);
+                    continue;
+                }
             };
             let text = match resp.text().await {
                 Ok(t) => t,
-                Err(e) => { warn!("Failed to read body from {}: {:?}", source, e); continue; }
+                Err(e) => {
+                    warn!("Failed to read body from {}: {:?}", source, e);
+                    continue;
+                }
             };
 
             if let Some(caps) = hash_re.captures(&text) {
@@ -253,8 +268,8 @@ impl CipherManager {
                     .and_then(|v| v.as_str())
             });
 
-        resolved
-            .map(|u| u.to_string())
-            .ok_or_else(|| ResolverError::Custom("Cipher Server returned no resolved_url".to_string()))
+        resolved.map(|u| u.to_string()).ok_or_else(|| {
+            ResolverError::Custom("Cipher Server returned no resolved_url".to_string())
+        })
     }
 }
