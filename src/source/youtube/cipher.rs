@@ -66,12 +66,8 @@ impl CipherManager {
         Some(&rest[..end])
     }
 
-    async fn fetch_player_url(&self) -> String {
-        let fallback = Self::canonical_player_url(FALLBACK_PLAYER_HASH);
-
-        let browser_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
-
-        match self
+    async fn try_fetch_embed_player_url(&self, browser_ua: &str) -> Option<String> {
+        let text = self
             .http
             .get("https://www.youtube.com/embed/")
             .header("User-Agent", browser_ua)
@@ -82,37 +78,38 @@ impl CipherManager {
             .header("Accept-Language", "en-US,en;q=0.5")
             .send()
             .await
-        {
-            Ok(resp) => match resp.text().await {
-                Ok(text) => {
-                    if let Some(start) = text.find("\"jsUrl\":\"") {
-                        let rest = &text[start + 9..];
-                        if let Some(end) = rest.find('"') {
-                            let js_url = &rest[..end];
-                            let full_url = if js_url.starts_with("http") {
-                                js_url.to_string()
-                            } else {
-                                format!("https://www.youtube.com{}", js_url)
-                            };
-                            let canonical = Self::extract_hash_from_player_url(&full_url)
-                                .map(Self::canonical_player_url)
-                                .unwrap_or(full_url.clone());
-                            debug!(
-                                "Discovered player URL from embed page jsUrl: {} -> {}",
-                                full_url, canonical
-                            );
-                            return canonical;
-                        }
-                    }
-                    warn!(
-                        "embed/ response did not contain jsUrl (len={}); trying fallback sources",
-                        text.len()
-                    );
-                }
-                Err(e) => warn!("Failed to read embed/ body: {:?}", e),
-            },
-            Err(e) => warn!("Failed to fetch embed/ for player URL: {:?}", e),
+            .ok()?
+            .text()
+            .await
+            .ok()?;
+
+        let start = text.find("\"jsUrl\":\"")?;
+        let rest = &text[start + 9..];
+        let js_url = &rest[..rest.find('"')?];
+        let full_url = if js_url.starts_with("http") {
+            js_url.to_string()
+        } else {
+            format!("https://www.youtube.com{}", js_url)
+        };
+        let canonical = Self::extract_hash_from_player_url(&full_url)
+            .map(Self::canonical_player_url)
+            .unwrap_or(full_url.clone());
+        debug!(
+            "Discovered player URL from embed page jsUrl: {} -> {}",
+            full_url, canonical
+        );
+        Some(canonical)
+    }
+
+    async fn fetch_player_url(&self) -> String {
+        let fallback = Self::canonical_player_url(FALLBACK_PLAYER_HASH);
+
+        let browser_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
+
+        if let Some(url) = self.try_fetch_embed_player_url(browser_ua).await {
+            return url;
         }
+        warn!("embed/ page did not yield a player URL; trying fallback sources");
 
         let hash_re = regex::Regex::new(r"/s/player/([0-9a-f]{8})/").unwrap();
 
