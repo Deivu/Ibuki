@@ -106,9 +106,6 @@ pub trait InnertubeClient: Send + Sync {
     }
 }
 
-// ---------------------------
-// ANDROID
-// ---------------------------
 pub struct AndroidClient;
 impl InnertubeClient for AndroidClient {
     fn name(&self) -> &'static str {
@@ -158,9 +155,6 @@ impl InnertubeClient for AndroidClient {
     }
 }
 
-// ---------------------------
-// ANDROID MUSIC
-// ---------------------------
 pub struct AndroidMusicClient;
 impl InnertubeClient for AndroidMusicClient {
     fn name(&self) -> &'static str {
@@ -209,9 +203,6 @@ impl InnertubeClient for AndroidMusicClient {
     }
 }
 
-// ---------------------------
-// ANDROID VR
-// ---------------------------
 pub struct AndroidVrClient;
 impl InnertubeClient for AndroidVrClient {
     fn name(&self) -> &'static str {
@@ -255,9 +246,6 @@ impl InnertubeClient for AndroidVrClient {
     }
 }
 
-// ---------------------------
-// IOS
-// ---------------------------
 pub struct IosClient;
 impl InnertubeClient for IosClient {
     fn name(&self) -> &'static str {
@@ -311,9 +299,6 @@ impl InnertubeClient for IosClient {
     }
 }
 
-// ---------------------------
-// TV
-// ---------------------------
 pub struct TvClient;
 impl InnertubeClient for TvClient {
     fn name(&self) -> &'static str {
@@ -362,9 +347,6 @@ impl InnertubeClient for TvClient {
     }
 }
 
-// ---------------------------
-// TV EMBEDDED (TVHTML5_SIMPLY)
-// ---------------------------
 pub struct TvEmbeddedClient;
 impl InnertubeClient for TvEmbeddedClient {
     fn name(&self) -> &'static str {
@@ -424,9 +406,6 @@ impl InnertubeClient for TvEmbeddedClient {
     }
 }
 
-// ---------------------------
-// WEB
-// ---------------------------
 pub struct WebClient;
 impl InnertubeClient for WebClient {
     fn name(&self) -> &'static str {
@@ -478,9 +457,6 @@ impl InnertubeClient for WebClient {
     }
 }
 
-// ---------------------------
-// WEB REMIX
-// ---------------------------
 pub struct WebRemixClient;
 impl InnertubeClient for WebRemixClient {
     fn name(&self) -> &'static str {
@@ -529,9 +505,6 @@ impl InnertubeClient for WebRemixClient {
     }
 }
 
-// ---------------------------
-// WEB EMBEDDED
-// ---------------------------
 pub struct WebEmbeddedClient;
 impl InnertubeClient for WebEmbeddedClient {
     fn name(&self) -> &'static str {
@@ -589,9 +562,6 @@ impl InnertubeClient for WebEmbeddedClient {
     }
 }
 
-// ---------------------------
-// WEB PARENT TOOLS
-// ---------------------------
 pub struct WebParentToolsClient;
 impl InnertubeClient for WebParentToolsClient {
     fn name(&self) -> &'static str {
@@ -646,9 +616,6 @@ impl InnertubeClient for WebParentToolsClient {
     }
 }
 
-// ---------------------------
-// MWEB (Mobile Web)
-// ---------------------------
 pub struct MWebClient;
 impl InnertubeClient for MWebClient {
     fn name(&self) -> &'static str {

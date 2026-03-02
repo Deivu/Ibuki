@@ -1,21 +1,19 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
 use reqwest::Client;
 use serde_json::Value;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::api::InnertubeApi;
 use super::cipher::CipherManager;
 use super::clients::{self, InnertubeClient};
-use crate::CONFIG;
-use crate::util::errors::ResolverError;
-
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
 use super::oauth::YoutubeOAuth;
 use super::sabr::Sabr;
+use crate::CONFIG;
+use crate::util::errors::ResolverError;
 
 pub struct YouTubeManager {
     pub(crate) http: Client,
@@ -256,8 +254,6 @@ impl YouTubeManager {
     pub async fn make_playable(&self, video_id: &str) -> Result<(String, Client, reqwest::header::HeaderMap), ResolverError> {
         let mut last_error =
             ResolverError::Custom("No clients configured for playback".to_string());
-
-        // Extract context data once
         let (visitor_data, po_token) = {
             let sabr = self.sabr.lock().await;
             (sabr.get_visitor_data(), sabr.get_po_token())
@@ -424,15 +420,10 @@ impl YouTubeManager {
                                 Ok(deciphered) => final_url = deciphered,
                                 Err(e) => {
                                     warn!("N-parameter decipher failed for {}: {:?}", client.name(), e);
-                                    // For clients that require cipher (TV/Web), cipher failure means the URL
-                                    // will be broken — skip to next client.
-                                    // For mobile clients (IOS, AndroidVR) that don't strictly need cipher,
-                                    // fall back to raw URL (stream may be throttled but still functional).
                                     if client.needs_cipher() {
                                         last_error = e;
                                         continue;
                                     }
-                                    // fall through with raw final_url
                                 }
                             }
                         }
@@ -514,8 +505,6 @@ impl YouTubeManager {
                             }
                             Err(e) => {
                                 warn!("Cipher resolution failed for {}: {:?}", client.name(), e);
-                                // signatureCipher always requires the deciphered sig — there is no
-                                // usable raw URL to fall back to, so always skip to next client.
                                 last_error = e;
                                 continue;
                             }

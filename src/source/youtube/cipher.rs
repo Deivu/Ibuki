@@ -91,8 +91,6 @@ impl CipherManager {
                             } else {
                                 format!("https://www.youtube.com{}", js_url)
                             };
-                            // Normalize to canonical player_ias.vflset format
-                            // (cipher servers may only understand player_ias, not player_es6_tce etc.)
                             let canonical = Self::extract_hash_from_player_url(&full_url)
                                 .map(Self::canonical_player_url)
                                 .unwrap_or(full_url.clone());
@@ -121,26 +119,18 @@ impl CipherManager {
         ];
 
         for source in &fallback_sources {
-            let text = match self
-                .http
-                .get(*source)
+            let resp = match self.http.get(*source)
                 .header("User-Agent", browser_ua)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "en-US,en;q=0.5")
-                .send()
-                .await
+                .send().await
             {
-                Ok(resp) => match resp.text().await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        warn!("Failed to read body from {}: {:?}", source, e);
-                        continue;
-                    }
-                },
-                Err(e) => {
-                    warn!("Failed to fetch {}: {:?}", source, e);
-                    continue;
-                }
+                Ok(r) => r,
+                Err(e) => { warn!("Failed to fetch {}: {:?}", source, e); continue; }
+            };
+            let text = match resp.text().await {
+                Ok(t) => t,
+                Err(e) => { warn!("Failed to read body from {}: {:?}", source, e); continue; }
             };
 
             if let Some(caps) = hash_re.captures(&text) {
@@ -164,7 +154,7 @@ impl CipherManager {
     }
 
     async fn get_player_url(&self) -> String {
-        let mut cache = self.player_url_cache.lock().await;
+        let cache = self.player_url_cache.lock().await;
         if let Some(ref cached) = *cache {
             if cached.fetched_at.elapsed() < PLAYER_URL_TTL {
                 return cached.url.clone();
@@ -263,12 +253,8 @@ impl CipherManager {
                     .and_then(|v| v.as_str())
             });
 
-        if let Some(url) = resolved {
-            Ok(url.to_string())
-        } else {
-            Err(ResolverError::Custom(
-                "Cipher Server returned no resolved_url".to_string(),
-            ))
-        }
+        resolved
+            .map(|u| u.to_string())
+            .ok_or_else(|| ResolverError::Custom("Cipher Server returned no resolved_url".to_string()))
     }
 }

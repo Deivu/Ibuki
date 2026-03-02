@@ -21,7 +21,6 @@ impl Sabr {
     }
 
     pub async fn fetch_visitor_data(&mut self) -> Option<String> {
-        // Method 1: Embed Page
         let (http_client, bound_ip) = crate::get_client();
         let response = http_client
             .get("https://www.youtube.com/embed")
@@ -75,8 +74,6 @@ impl Sabr {
                 return Some(data);
             }
         }
-
-        // Method 2: Guide API (Fallback)
         debug!("Embed visitor data failed, trying API...");
         let payload = serde_json::json!({
             "context": {
@@ -143,13 +140,6 @@ impl Sabr {
     }
 
     pub async fn generate_po_token(&mut self) -> Option<String> {
-        // Placeholder for PO Token generation logic.
-        // For accurate porting, we would need to know the specific fields or have an external generator.
-        //
-        // Current Strategy:
-        // 1. If we have a stored token, return it.
-        // 2. If not, try to generate/fetch (Not implemented yet w/o implementation details).
-
         if let Some(token) = &self.po_token {
             return Some(token.clone());
         }

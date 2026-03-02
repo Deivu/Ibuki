@@ -1,6 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tracing::{debug, error, info};
+
+use crate::util::errors::ResolverError;
+use crate::util::http::is_bind_error;
+
 pub struct YoutubeOAuth {
     http: Client,
     token: Option<OauthToken>,
@@ -159,13 +166,6 @@ impl YoutubeOAuth {
         })
     }
 }
-
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use tracing::{debug, error, info};
-
-use crate::util::errors::ResolverError;
-use crate::util::http::is_bind_error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OauthToken {

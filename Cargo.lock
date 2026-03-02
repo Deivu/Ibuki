@@ -1770,7 +1770,6 @@ dependencies = [
  "rand_agents",
  "regex",
  "reqwest 0.12.24",
- "rquickjs",
  "rustypipe",
  "serde",
  "serde_json",
