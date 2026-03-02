@@ -62,18 +62,12 @@ impl YoutubeHttpStream {
             }
         }
 
-        tracing::debug!("YoutubeHttpStream: Requesting URL: {}", req_url);
-        tracing::debug!("YoutubeHttpStream: Headers: {:?}", self.headers);
-
         let resp = self.client
             .get(&req_url)
             .headers(self.headers.clone())
             .send()
             .await
             .map_err(|e| AudioStreamError::Fail(Box::new(e)))?;
-
-        tracing::debug!("YoutubeHttpStream: Response Status: {}", resp.status());
-        tracing::debug!("YoutubeHttpStream: Response Headers: {:?}", resp.headers());
 
         if !resp.status().is_success() {
             let msg: Box<dyn std::error::Error + Send + Sync + 'static> =
