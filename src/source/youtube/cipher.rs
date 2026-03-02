@@ -52,11 +52,22 @@ impl CipherManager {
         }
     }
 
-    async fn fetch_player_url(&self) -> String {
-        let fallback = format!(
+    fn canonical_player_url(hash: &str) -> String {
+        format!(
             "https://www.youtube.com/s/player/{}/player_ias.vflset/en_US/base.js",
-            FALLBACK_PLAYER_HASH
-        );
+            hash
+        )
+    }
+
+    fn extract_hash_from_player_url(url: &str) -> Option<&str> {
+        let start = url.find("/s/player/")? + 10;
+        let rest = &url[start..];
+        let end = rest.find('/')?;
+        Some(&rest[..end])
+    }
+
+    async fn fetch_player_url(&self) -> String {
+        let fallback = Self::canonical_player_url(FALLBACK_PLAYER_HASH);
 
         let browser_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
 
@@ -80,8 +91,16 @@ impl CipherManager {
                             } else {
                                 format!("https://www.youtube.com{}", js_url)
                             };
-                            debug!("Discovered player URL from embed page jsUrl: {}", full_url);
-                            return full_url;
+                            // Normalize to canonical player_ias.vflset format
+                            // (cipher servers may only understand player_ias, not player_es6_tce etc.)
+                            let canonical = Self::extract_hash_from_player_url(&full_url)
+                                .map(Self::canonical_player_url)
+                                .unwrap_or(full_url.clone());
+                            debug!(
+                                "Discovered player URL from embed page jsUrl: {} -> {}",
+                                full_url, canonical
+                            );
+                            return canonical;
                         }
                     }
                     warn!(
@@ -125,10 +144,7 @@ impl CipherManager {
             };
 
             if let Some(caps) = hash_re.captures(&text) {
-                let url = format!(
-                    "https://www.youtube.com/s/player/{}/player_ias.vflset/en_US/base.js",
-                    &caps[1]
-                );
+                let url = Self::canonical_player_url(&caps[1]);
                 debug!("Discovered player hash from {}: {}", source, url);
                 return url;
             }
