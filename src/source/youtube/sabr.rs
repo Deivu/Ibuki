@@ -2,7 +2,7 @@ use crate::source::youtube::api::YOUTUBE_API_URL;
 use crate::util::http::is_bind_error;
 use reqwest::Client;
 use serde_json::Value;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct Sabr {
     http: Client,

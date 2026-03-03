@@ -132,7 +132,6 @@ impl YouTubeManager {
         if let Some(visitor_data) = sabr.fetch_visitor_data().await {
             debug!("Initialized Visitor Data: {}", visitor_data);
         }
-
     }
 
     pub fn get_client(&self) -> Client {
@@ -214,7 +213,9 @@ impl YouTubeManager {
             };
 
             let sig_timestamp = if client.needs_cipher() {
-                self.cipher.get_signature_timestamp().await
+                self.cipher
+                    .get_signature_timestamp()
+                    .await
                     .and_then(|s| s.parse::<u32>().ok())
             } else {
                 None
@@ -370,7 +371,9 @@ impl YouTubeManager {
             };
 
             let sig_timestamp = if client.needs_cipher() {
-                self.cipher.get_signature_timestamp().await
+                self.cipher
+                    .get_signature_timestamp()
+                    .await
                     .and_then(|s| s.parse::<u32>().ok())
             } else {
                 None
@@ -536,7 +539,9 @@ impl YouTubeManager {
                         let sig_key = params.get("sp").map(|s| s.as_str());
                         debug!(
                             "Cipher: sig_key={:?} n_param={:?} for {} (cipher)",
-                            sig_key, n_param, client.name()
+                            sig_key,
+                            n_param,
+                            client.name()
                         );
                         match self
                             .cipher

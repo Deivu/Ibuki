@@ -14,7 +14,6 @@ use crate::util::errors::ResolverError;
 const FALLBACK_PLAYER_HASH: &str = "00c52fa0";
 const PLAYER_URL_TTL: Duration = Duration::from_secs(86400);
 
-
 struct CachedPlayerScript {
     url: String,
     signature_timestamp: Option<String>,
@@ -59,40 +58,33 @@ impl LocalSignatureCipher {
 static TIMESTAMP_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:signatureTimestamp|sts):(\d+)").unwrap());
 
-static ACTIONS_OBJECT_RE: LazyLock<Regex> =
-    LazyLock::new(|| {
-        Regex::new(
+static ACTIONS_OBJECT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
             r#"var\s+([$A-Za-z0-9_]+)\s*=\s*\{(?:\s*["']?[a-zA-Z_$][a-zA-Z_0-9$]*["']?\s*:\s*function\s*\([^)]*\)\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\s*,){2}\s*["']?[a-zA-Z_$][a-zA-Z_0-9$]*["']?\s*:\s*function\s*\([^)]*\)\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\s*\}"#
         ).unwrap()
-    });
+});
 
-static SIG_FUNCTION_RE: LazyLock<Regex> =
-    LazyLock::new(|| {
-        Regex::new(
+static SIG_FUNCTION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
             r#"function(?:\s+[a-zA-Z_$][a-zA-Z_0-9$]*)?\(([a-zA-Z_$][a-zA-Z_0-9$]*)\)\{[a-zA-Z_$][a-zA-Z_0-9$]*=[a-zA-Z_$][a-zA-Z_0-9$]*\.split\(["']{2}\);\s*((?:[a-zA-Z_$][a-zA-Z_0-9$]*\.[a-zA-Z_$][a-zA-Z_0-9$]*\([^)]*\);?\s*)+)return [a-zA-Z_$][a-zA-Z_0-9$]*\.join\(["']{2}\)\}"#
         ).unwrap()
-    });
+});
 
-static SIG_CALL_RE: LazyLock<Regex> =
-    LazyLock::new(|| {
-        Regex::new(
-            r"([a-zA-Z_$][a-zA-Z_0-9$]*)\.([a-zA-Z_$][a-zA-Z_0-9$]*)\(([^)]*)\)"
-        ).unwrap()
-    });
+static SIG_CALL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"([a-zA-Z_$][a-zA-Z_0-9$]*)\.([a-zA-Z_$][a-zA-Z_0-9$]*)\(([^)]*)\)").unwrap()
+});
 
-static ACTION_METHOD_RE: LazyLock<Regex> =
-    LazyLock::new(|| {
-        Regex::new(
+static ACTION_METHOD_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
             r#"["']?([a-zA-Z_$][a-zA-Z_0-9$]*)["']?\s*:\s*function\s*\(([^)]*)\)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}"#
         ).unwrap()
-    });
+});
 
-static N_FUNCTION_RE: LazyLock<Regex> =
-    LazyLock::new(|| {
-        Regex::new(
+static N_FUNCTION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
             r"function\(\s*([a-zA-Z_$][a-zA-Z_0-9$]*)\s*\)\s*\{var\s*([a-zA-Z_$][a-zA-Z_0-9$]*)=\1\[[a-zA-Z_$][a-zA-Z_0-9$]*\[\d+\]\]\([a-zA-Z_$][a-zA-Z_0-9$]*\[\d+\]\).*?catch\(\s*\w+\s*\)\s*\{\s*return.*?\+\s*\1\s*\}\s*return\s*\2\[[a-zA-Z_$][a-zA-Z_0-9$]*\[\d+\]\]\([a-zA-Z_$][a-zA-Z_0-9$]*\[\d+\]\)\};"
         ).unwrap()
-    });
+});
 
 fn classify_action(body: &str, param_count: usize) -> Option<&'static str> {
     if body.contains(".reverse()") {
@@ -170,7 +162,11 @@ fn extract_cipher_from_script(script: &str) -> Option<LocalSignatureCipher> {
         return None;
     }
 
-    debug!("Extracted {} cipher operations: {:?}", operations.len(), operations);
+    debug!(
+        "Extracted {} cipher operations: {:?}",
+        operations.len(),
+        operations
+    );
 
     let n_function = N_FUNCTION_RE.find(script).map(|m| m.as_str().to_string());
     if n_function.is_some() {
@@ -339,7 +335,11 @@ impl CipherManager {
             .ok()?;
 
         if !resp.status().is_success() {
-            warn!("Failed to download player script {}: {}", url, resp.status());
+            warn!(
+                "Failed to download player script {}: {}",
+                url,
+                resp.status()
+            );
             return None;
         }
 
@@ -442,9 +442,7 @@ impl CipherManager {
                     s.to_string()
                 }
             })
-            .ok_or_else(|| {
-                ResolverError::Custom("Remote cipher returned no STS".to_string())
-            })
+            .ok_or_else(|| ResolverError::Custom("Remote cipher returned no STS".to_string()))
     }
 
     async fn resolve_url_remote(
@@ -499,7 +497,10 @@ impl CipherManager {
                         .unwrap_or("Unknown cipher error")
                 });
             error!("Cipher Server Error: {} - {}", status, msg);
-            return Err(ResolverError::Custom(format!("Remote Cipher Error: {}", msg)));
+            return Err(ResolverError::Custom(format!(
+                "Remote Cipher Error: {}",
+                msg
+            )));
         }
 
         body.get("resolved_url")
@@ -534,7 +535,9 @@ impl CipherManager {
         }
 
         if n_param.is_some() {
-            debug!("Local cipher: n-parameter present but cannot transform locally (throttled playback)");
+            debug!(
+                "Local cipher: n-parameter present but cannot transform locally (throttled playback)"
+            );
         }
 
         Ok(parsed.to_string())
@@ -565,7 +568,10 @@ impl CipherManager {
             {
                 Ok(resolved) => return Ok(resolved),
                 Err(e) => {
-                    warn!("Remote cipher failed: {:?}; falling back to local cipher", e);
+                    warn!(
+                        "Remote cipher failed: {:?}; falling back to local cipher",
+                        e
+                    );
                 }
             }
         }
