@@ -2,7 +2,7 @@ use crate::source::youtube::api::YOUTUBE_API_URL;
 use crate::util::http::is_bind_error;
 use reqwest::Client;
 use serde_json::Value;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 pub struct Sabr {
     http: Client,
@@ -17,6 +17,14 @@ impl Sabr {
             .as_ref()
             .map(|c| (c.po_token.clone(), c.visitor_data.clone()))
             .unwrap_or((None, None));
+
+        let po_token = po_token.filter(|t| !t.is_empty() && t != "YOUR_PO_TOKEN_HERE");
+        let visitor_data = visitor_data.filter(|v| !v.is_empty() && v != "YOUR_VISITOR_DATA_HERE");
+
+        if po_token.is_some() {
+            info!("PoToken loaded from config");
+        }
+
         Self {
             http,
             visitor_data,
@@ -143,14 +151,6 @@ impl Sabr {
         None
     }
 
-    pub async fn generate_po_token(&mut self) -> Option<String> {
-        if let Some(token) = &self.po_token {
-            return Some(token.clone());
-        }
-
-        warn!("PoToken generation logic is currently a placeholder. Requests might be throttled.");
-        None
-    }
     pub fn get_visitor_data(&self) -> Option<String> {
         self.visitor_data.clone()
     }

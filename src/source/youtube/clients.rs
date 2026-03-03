@@ -623,6 +623,9 @@ impl InnertubeClient for MWebClient {
     fn needs_cipher(&self) -> bool {
         true
     }
+    fn requires_pot(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {

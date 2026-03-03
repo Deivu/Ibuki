@@ -132,6 +132,7 @@ impl YouTubeManager {
         if let Some(visitor_data) = sabr.fetch_visitor_data().await {
             debug!("Initialized Visitor Data: {}", visitor_data);
         }
+
     }
 
     pub fn get_client(&self) -> Client {
@@ -272,6 +273,7 @@ impl YouTubeManager {
     ) -> Result<(String, Client, reqwest::header::HeaderMap), ResolverError> {
         let mut last_error =
             ResolverError::Custom("No clients configured for playback".to_string());
+
         let (visitor_data, po_token) = {
             let sabr = self.sabr.lock().await;
             (sabr.get_visitor_data(), sabr.get_po_token())
