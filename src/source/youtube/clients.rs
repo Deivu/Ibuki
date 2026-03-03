@@ -174,21 +174,21 @@ impl InnertubeClient for AndroidMusicClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "ANDROID_MUSIC".to_string(),
-                client_version: "7.30.51".to_string(),
+                client_version: "7.27.52".to_string(),
                 user_agent: Some(
-                    "com.google.android.apps.youtube.music/7.30.51 (Linux; U; Android 14) gzip"
+                    "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip"
                         .to_string(),
                 ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
                 os_name: Some("Android".to_string()),
-                os_version: Some("14".to_string()),
+                os_version: Some("11".to_string()),
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
                 client_screen: None,
-                android_sdk_version: Some(34),
+                android_sdk_version: Some(30),
                 screen_density_float: None,
                 screen_height_points: None,
                 screen_pixel_density: None,
@@ -204,7 +204,7 @@ impl InnertubeClient for AndroidMusicClient {
         vec![
             (
                 "User-Agent".to_string(),
-                "com.google.android.apps.youtube.music/7.30.51 (Linux; U; Android 14) gzip"
+                "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip"
                     .to_string(),
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
@@ -315,7 +315,7 @@ impl InnertubeClient for IosClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        None
+        Some("CgIIAdgDAQ==")
     }
 }
 
@@ -331,7 +331,7 @@ impl InnertubeClient for TvClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "TVHTML5".to_string(),
-                client_version: "7.20241223.10.00".to_string(),
+                client_version: "7.20250319.10.00".to_string(),
                 user_agent: Some("Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.6.1039866-gold (unlike Gecko) v8/8.8.278.14-jit gyp/25.lts.6.1039866-gold Starboard/16, like TV Safari/537.36".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
@@ -360,7 +360,7 @@ impl InnertubeClient for TvClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAQ==")
+        Some("2AMB")
     }
     fn supports_oauth(&self) -> bool {
         true
@@ -419,7 +419,7 @@ impl InnertubeClient for TvEmbeddedClient {
         }))
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAQ==")
+        Some("2AMB")
     }
 }
 

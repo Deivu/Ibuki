@@ -212,6 +212,13 @@ impl YouTubeManager {
                 None
             };
 
+            let sig_timestamp = if client.needs_cipher() {
+                self.cipher.get_signature_timestamp().await
+                    .and_then(|s| s.parse::<u32>().ok())
+            } else {
+                None
+            };
+
             match self
                 .api
                 .player(
@@ -223,7 +230,7 @@ impl YouTubeManager {
                     visitor_data.as_deref(),
                     po_token.as_deref(),
                     oauth_token.as_deref(),
-                    None,
+                    sig_timestamp,
                     encrypted_host_flags.as_deref(),
                     &http_client,
                     bound_ip,
@@ -360,6 +367,13 @@ impl YouTubeManager {
                 None
             };
 
+            let sig_timestamp = if client.needs_cipher() {
+                self.cipher.get_signature_timestamp().await
+                    .and_then(|s| s.parse::<u32>().ok())
+            } else {
+                None
+            };
+
             let player_response = match self
                 .api
                 .player(
@@ -371,7 +385,7 @@ impl YouTubeManager {
                     visitor_data.as_deref(),
                     po_token.as_deref(),
                     oauth_token.as_deref(),
-                    None,
+                    sig_timestamp,
                     encrypted_host_flags.as_deref(),
                     &http_client,
                     bound_ip,
