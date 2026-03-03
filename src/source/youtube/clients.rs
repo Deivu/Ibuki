@@ -158,7 +158,7 @@ impl InnertubeClient for AndroidClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        None
+        Some("CgIIAdgDAQ==")
     }
 }
 
@@ -211,7 +211,7 @@ impl InnertubeClient for AndroidMusicClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAdgDAQ%3D%3D")
+        Some("CgIIAdgDAQ==")
     }
 }
 
@@ -315,7 +315,7 @@ impl InnertubeClient for IosClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAdgDAQ%3D%3D")
+        Some("CgIIAdgDAQ==")
     }
 }
 
@@ -360,7 +360,7 @@ impl InnertubeClient for TvClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAQ%3D%3D")
+        Some("CgIIAQ==")
     }
     fn supports_oauth(&self) -> bool {
         true
@@ -419,7 +419,7 @@ impl InnertubeClient for TvEmbeddedClient {
         }))
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAQ%3D%3D")
+        Some("CgIIAQ==")
     }
 }
 
@@ -659,7 +659,7 @@ impl InnertubeClient for MWebClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAdgDAQ%3D%3D")
+        Some("CgIIAdgDAQ==")
     }
 }
 
