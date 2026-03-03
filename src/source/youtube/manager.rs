@@ -517,10 +517,14 @@ impl YouTubeManager {
                                 .map(|(_, v)| v.into_owned())
                         });
                         let n_param = n_from_url.as_deref();
-                        debug!("Cipher: extracted n_param={:?} for {} (cipher)", n_param, client.name());
+                        let sig_key = params.get("sp").map(|s| s.as_str());
+                        debug!(
+                            "Cipher: sig_key={:?} n_param={:?} for {} (cipher)",
+                            sig_key, n_param, client.name()
+                        );
                         match self
                             .cipher
-                            .resolve_url(url, Some(sig), n_param)
+                            .resolve_url_with_sig_key(url, Some(sig), n_param, sig_key)
                             .await
                         {
                             Ok(deciphered) => {
