@@ -155,7 +155,7 @@ impl InnertubeClient for AndroidClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAdgDAQ%3D%3D")
+        None
     }
 }
 
@@ -366,8 +366,8 @@ impl InnertubeClient for TvEmbeddedClient {
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
-                client_name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER".to_string(),
-                client_version: "2.0".to_string(),
+                client_name: "TVHTML5_SIMPLY".to_string(),
+                client_version: "1.0".to_string(),
                 user_agent: Some("Mozilla/5.0 (SmartHub; SMART-TV; U; Linux/SmartTV; QM15A; Tizen 5.5) AppleWebKit/537.3 (KHTML, like Gecko) TV Safari/537.3".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
@@ -531,7 +531,7 @@ impl InnertubeClient for WebEmbeddedClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "WEB_EMBEDDED_PLAYER".to_string(),
-                client_version: "1.20241223.01.00".to_string(),
+                client_version: "1.20250401.01.00".to_string(),
                 user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
@@ -633,7 +633,7 @@ impl InnertubeClient for MWebClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "MWEB".to_string(),
-                client_version: "2.20240726.01.00".to_string(),
+                client_version: "2.20240726.11.00".to_string(),
                 user_agent: Some(
                     "Mozilla/5.0 (Linux; Android 11; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Mobile Safari/537.36,gzip(gfe)".to_string(),
                 ),
