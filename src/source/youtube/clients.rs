@@ -101,12 +101,18 @@ pub trait InnertubeClient: Send + Sync {
     fn requires_pot(&self) -> bool {
         false
     }
+    fn use_embed_context(&self) -> bool {
+        true
+    }
 }
 
 pub struct AndroidClient;
 impl InnertubeClient for AndroidClient {
     fn name(&self) -> &'static str {
         "Android"
+    }
+    fn use_embed_context(&self) -> bool {
+        false
     }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
@@ -161,6 +167,9 @@ impl InnertubeClient for AndroidMusicClient {
     fn name(&self) -> &'static str {
         "AndroidMusic"
     }
+    fn use_embed_context(&self) -> bool {
+        false
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -211,6 +220,9 @@ impl InnertubeClient for AndroidVrClient {
     fn name(&self) -> &'static str {
         "AndroidVR"
     }
+    fn use_embed_context(&self) -> bool {
+        false
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -253,6 +265,9 @@ pub struct IosClient;
 impl InnertubeClient for IosClient {
     fn name(&self) -> &'static str {
         "IOS"
+    }
+    fn use_embed_context(&self) -> bool {
+        false
     }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
