@@ -265,7 +265,7 @@ impl InnertubeApi {
             context.client.visitor_data = Some(vd.to_string());
         }
 
-        if client.use_embed_context() && (oauth_token.is_none() || !client.supports_oauth()) {
+        if !client.supports_oauth() {
             context.client.client_screen = Some("EMBED".to_string());
             if context.third_party.is_none() {
                 let mut fields = serde_json::Map::new();

@@ -101,9 +101,6 @@ pub trait InnertubeClient: Send + Sync {
     fn requires_pot(&self) -> bool {
         false
     }
-    fn use_embed_context(&self) -> bool {
-        false
-    }
 }
 
 pub struct AndroidClient;
@@ -401,9 +398,6 @@ impl InnertubeClient for TvEmbeddedClient {
             ("Referer".to_string(), "https://www.youtube.com/tv_embed".to_string()),
         ]
     }
-    fn use_embed_context(&self) -> bool {
-        true
-    }
     fn extra_payload(&self) -> Option<serde_json::Value> {
         Some(serde_json::json!({
             "attestationRequest": { "omitBotguardData": true }
@@ -423,9 +417,6 @@ impl InnertubeClient for WebClient {
         true
     }
     fn requires_pot(&self) -> bool {
-        true
-    }
-    fn use_embed_context(&self) -> bool {
         true
     }
     fn context(&self) -> InnertubeContext {
@@ -473,12 +464,6 @@ impl InnertubeClient for WebRemixClient {
     fn needs_cipher(&self) -> bool {
         true
     }
-    fn requires_pot(&self) -> bool {
-        true
-    }
-    fn use_embed_context(&self) -> bool {
-        true
-    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -522,9 +507,6 @@ impl InnertubeClient for WebEmbeddedClient {
         true
     }
     fn requires_pot(&self) -> bool {
-        true
-    }
-    fn use_embed_context(&self) -> bool {
         true
     }
     fn context(&self) -> InnertubeContext {
@@ -578,12 +560,6 @@ impl InnertubeClient for WebParentToolsClient {
     fn needs_cipher(&self) -> bool {
         true
     }
-    fn requires_pot(&self) -> bool {
-        true
-    }
-    fn use_embed_context(&self) -> bool {
-        true
-    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
@@ -628,6 +604,9 @@ pub struct MWebClient;
 impl InnertubeClient for MWebClient {
     fn name(&self) -> &'static str {
         "MWeb"
+    }
+    fn needs_cipher(&self) -> bool {
+        true
     }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
