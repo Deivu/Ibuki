@@ -510,9 +510,16 @@ impl YouTubeManager {
                             .collect();
 
                     if let (Some(url), Some(sig)) = (params.get("url"), params.get("s")) {
+                        let n_from_url = url::Url::parse(url).ok().and_then(|parsed| {
+                            parsed
+                                .query_pairs()
+                                .find(|(k, _)| k == "n")
+                                .map(|(_, v)| v.into_owned())
+                        });
+                        let n_param = n_from_url.as_deref();
                         match self
                             .cipher
-                            .resolve_url(url, Some(sig), params.get("n").map(|s| s.as_str()))
+                            .resolve_url(url, Some(sig), n_param)
                             .await
                         {
                             Ok(deciphered) => {
