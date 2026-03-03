@@ -158,7 +158,7 @@ impl InnertubeClient for AndroidClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAdgDAQ==")
+        None
     }
 }
 
@@ -315,7 +315,7 @@ impl InnertubeClient for IosClient {
         ]
     }
     fn player_params(&self) -> Option<&'static str> {
-        Some("CgIIAdgDAQ==")
+        None
     }
 }
 
