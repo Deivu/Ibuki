@@ -164,13 +164,15 @@ impl InnertubeApi {
         }
 
         if let Some(po) = po_token {
-            if let Some(p) = payload.as_object_mut() {
-                p.insert(
-                    "serviceIntegrityDimensions".to_string(),
-                    json!({
-                        "poToken": po
-                    }),
-                );
+            if client.requires_pot() {
+                if let Some(p) = payload.as_object_mut() {
+                    p.insert(
+                        "serviceIntegrityDimensions".to_string(),
+                        json!({
+                            "poToken": po
+                        }),
+                    );
+                }
             }
         }
 
@@ -287,13 +289,15 @@ impl InnertubeApi {
         }
 
         if let Some(po) = po_token {
-            if let Some(p) = payload.as_object_mut() {
-                p.insert(
-                    "serviceIntegrityDimensions".to_string(),
-                    json!({
-                        "poToken": po
-                    }),
-                );
+            if client.requires_pot() {
+                if let Some(p) = payload.as_object_mut() {
+                    p.insert(
+                        "serviceIntegrityDimensions".to_string(),
+                        json!({
+                            "poToken": po
+                        }),
+                    );
+                }
             }
         }
 
