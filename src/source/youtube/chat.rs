@@ -6,7 +6,7 @@ use crate::util::errors::ResolverError;
 
 pub struct LiveChat {
     http: Client,
-    api: InnertubeApi, // Re-use api logic? Or independent?
+    api: InnertubeApi,
 }
 
 impl LiveChat {

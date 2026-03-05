@@ -2,7 +2,7 @@ use crate::source::youtube::api::YOUTUBE_API_URL;
 use crate::util::http::is_bind_error;
 use reqwest::Client;
 use serde_json::Value;
-use tracing::{debug, warn};
+use tracing::{debug, info};
 
 pub struct Sabr {
     http: Client,
@@ -12,15 +12,27 @@ pub struct Sabr {
 
 impl Sabr {
     pub fn new(http: Client) -> Self {
+        let (po_token, visitor_data) = crate::CONFIG
+            .youtube_config
+            .as_ref()
+            .map(|c| (c.po_token.clone(), c.visitor_data.clone()))
+            .unwrap_or((None, None));
+
+        let po_token = po_token.filter(|t| !t.is_empty() && t != "YOUR_PO_TOKEN_HERE");
+        let visitor_data = visitor_data.filter(|v| !v.is_empty() && v != "YOUR_VISITOR_DATA_HERE");
+
+        if po_token.is_some() {
+            info!("PoToken loaded from config");
+        }
+
         Self {
             http,
-            visitor_data: None,
-            po_token: None,
+            visitor_data,
+            po_token,
         }
     }
 
     pub async fn fetch_visitor_data(&mut self) -> Option<String> {
-        // Method 1: Embed Page
         let (http_client, bound_ip) = crate::get_client();
         let response = http_client
             .get("https://www.youtube.com/embed")
@@ -74,8 +86,6 @@ impl Sabr {
                 return Some(data);
             }
         }
-
-        // Method 2: Guide API (Fallback)
         debug!("Embed visitor data failed, trying API...");
         let payload = serde_json::json!({
             "context": {
@@ -141,26 +151,19 @@ impl Sabr {
         None
     }
 
-    pub async fn generate_po_token(&mut self) -> Option<String> {
-        // Placeholder for PO Token generation logic.
-        // For accurate porting, we would need to know the specific fields or have an external generator.
-        //
-        // Current Strategy:
-        // 1. If we have a stored token, return it.
-        // 2. If not, try to generate/fetch (Not implemented yet w/o implementation details).
-
-        if let Some(token) = &self.po_token {
-            return Some(token.clone());
-        }
-
-        warn!("PoToken generation logic is currently a placeholder. Requests might be throttled.");
-        None
-    }
     pub fn get_visitor_data(&self) -> Option<String> {
         self.visitor_data.clone()
     }
 
     pub fn get_po_token(&self) -> Option<String> {
         self.po_token.clone()
+    }
+
+    pub fn set_visitor_data(&mut self, visitor_data: Option<String>) {
+        self.visitor_data = visitor_data;
+    }
+
+    pub fn set_po_token(&mut self, po_token: Option<String>) {
+        self.po_token = po_token;
     }
 }

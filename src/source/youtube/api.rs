@@ -3,11 +3,13 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use tracing::error;
 
-use super::clients::{InnertubeClient, InnertubeContext};
+use super::clients::{InnertubeClient, InnertubeContext, InnertubeThirdParty};
 use crate::util::errors::ResolverError;
 use crate::util::http::is_bind_error;
 
 pub const YOUTUBE_API_URL: &str = "https://www.youtube.com/youtubei/v1";
+pub const SEARCH_PARAMS: &str = "EgIQAfABAQ==";
+pub const MUSIC_SEARCH_PARAMS: &str = "Eg-KAQwIARAAGAAgACgAMABqChADEAQQCRAFEAo=";
 
 pub struct InnertubeApi {
     http: Client,
@@ -33,7 +35,10 @@ impl InnertubeApi {
         http_client: &Client,
         bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
-        let mut req_builder = http_client.post(format!("{}{}", YOUTUBE_API_URL, endpoint));
+        let mut req_builder = http_client
+            .post(format!("{}{}", YOUTUBE_API_URL, endpoint))
+            .header("Cookie", "CONSENT=YES+cb.20210328-17-p0.en+FX+471");
+
         for (k, v) in extra_headers {
             req_builder = req_builder.header(k, v);
         }
@@ -47,6 +52,13 @@ impl InnertubeApi {
                 }
             }
         }
+
+        tracing::debug!("InnerTube Request ({}):", endpoint);
+        tracing::debug!("  Headers: {:?}", extra_headers);
+        tracing::debug!(
+            "  Payload: {}",
+            serde_json::to_string(&final_payload).unwrap_or_default()
+        );
 
         let res = req_builder.json(&final_payload).send().await;
 
@@ -109,7 +121,8 @@ impl InnertubeApi {
         client: &dyn InnertubeClient,
         params: Option<&str>,
         visitor_data: Option<&str>,
-        oauth_token: Option<&str>,
+        po_token: Option<&str>,
+        _oauth_token: Option<&str>,
         http_client: &Client,
         bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
@@ -122,6 +135,18 @@ impl InnertubeApi {
                 .as_object_mut()
                 .unwrap()
                 .insert("params".to_string(), json!(p));
+        } else if client.name().to_lowercase().contains("music")
+            || client.name().to_lowercase().contains("remix")
+        {
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("params".to_string(), json!(MUSIC_SEARCH_PARAMS));
+        } else {
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("params".to_string(), json!(SEARCH_PARAMS));
         }
 
         let mut context = client.context();
@@ -134,8 +159,21 @@ impl InnertubeApi {
         }
 
         let mut headers = client.extra_headers();
-        if let Some(token) = oauth_token {
-            headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+        if let Some(vd) = visitor_data {
+            headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
+        }
+
+        if let Some(po) = po_token {
+            if client.requires_pot() {
+                if let Some(p) = payload.as_object_mut() {
+                    p.insert(
+                        "serviceIntegrityDimensions".to_string(),
+                        json!({
+                            "poToken": po
+                        }),
+                    );
+                }
+            }
         }
 
         self.make_request(
@@ -154,17 +192,21 @@ impl InnertubeApi {
         &self,
         video_id: &str,
         client: &dyn InnertubeClient,
+        params: Option<&str>,
         start_time: Option<u64>,
         playlist_id: Option<&str>,
         visitor_data: Option<&str>,
         po_token: Option<&str>,
         oauth_token: Option<&str>,
         signature_timestamp: Option<u32>,
+        encrypted_host_flags: Option<&str>,
         http_client: &Client,
         bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
         let mut payload = json!({
             "videoId": video_id,
+            "racyCheckOk": true,
+            "contentCheckOk": true,
             "playbackContext": {
                 "contentPlaybackContext": {
                     "autoCaptionsDefaultOn": false,
@@ -178,6 +220,23 @@ impl InnertubeApi {
                 }
             }
         });
+
+        if let Some(p) = params {
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("params".to_string(), json!(p));
+        }
+
+        if let Some(flags) = encrypted_host_flags {
+            if let Some(obj) = payload
+                .get_mut("playbackContext")
+                .and_then(|pc| pc.get_mut("contentPlaybackContext"))
+                .and_then(|cc| cc.as_object_mut())
+            {
+                obj.insert("encryptedHostFlags".to_string(), json!(flags));
+            }
+        }
 
         if let Some(pid) = playlist_id {
             payload
@@ -208,19 +267,37 @@ impl InnertubeApi {
             context.client.visitor_data = Some(vd.to_string());
         }
 
+        if !client.supports_oauth() && client.use_embed_context() {
+            context.client.client_screen = Some("EMBED".to_string());
+            if context.third_party.is_none() {
+                let mut fields = serde_json::Map::new();
+                fields.insert("embedUrl".to_string(), json!("https://google.com"));
+                context.third_party = Some(InnertubeThirdParty { fields });
+            }
+        }
+
         let mut headers = client.extra_headers();
+
+        if let Some(vd) = visitor_data {
+            headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
+        }
+
         if let Some(token) = oauth_token {
-            headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            if client.supports_oauth() {
+                headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            }
         }
 
         if let Some(po) = po_token {
-            if let Some(p) = payload.as_object_mut() {
-                p.insert(
-                    "serviceIntegrityDimensions".to_string(),
-                    json!({
-                        "poToken": po
-                    }),
-                );
+            if client.requires_pot() {
+                if let Some(p) = payload.as_object_mut() {
+                    p.insert(
+                        "serviceIntegrityDimensions".to_string(),
+                        json!({
+                            "poToken": po
+                        }),
+                    );
+                }
             }
         }
 
@@ -275,13 +352,82 @@ impl InnertubeApi {
             context.client.visitor_data = Some(vd.to_string());
         }
 
+        if !client.supports_oauth() && client.use_embed_context() {
+            context.client.client_screen = Some("EMBED".to_string());
+            let mut fields = serde_json::Map::new();
+            fields.insert("embedUrl".to_string(), json!("https://google.com"));
+            context.third_party = Some(InnertubeThirdParty { fields });
+        }
+
         let mut headers = client.extra_headers();
+
+        if let Some(vd) = visitor_data {
+            headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
+        }
+
         if let Some(token) = oauth_token {
-            headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            if client.supports_oauth() {
+                headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            }
         }
 
         self.make_request(
             "/next",
+            client,
+            &context,
+            payload,
+            &headers,
+            http_client,
+            bound_ip,
+        )
+        .await
+    }
+
+    pub async fn browse(
+        &self,
+        browse_id: Option<&str>,
+        continuation: Option<&str>,
+        client: &dyn InnertubeClient,
+        visitor_data: Option<&str>,
+        oauth_token: Option<&str>,
+        http_client: &Client,
+        bound_ip: Option<std::net::IpAddr>,
+    ) -> Result<Value, ResolverError> {
+        let mut payload = json!({});
+
+        if let Some(bid) = browse_id {
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("browseId".to_string(), json!(bid));
+        }
+
+        if let Some(cont) = continuation {
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("continuation".to_string(), json!(cont));
+        }
+
+        let mut context = client.context();
+        if let Some(vd) = visitor_data {
+            context.client.visitor_data = Some(vd.to_string());
+        }
+
+        let mut headers = client.extra_headers();
+
+        if let Some(vd) = visitor_data {
+            headers.push(("X-Goog-Visitor-Id".to_string(), vd.to_string()));
+        }
+
+        if let Some(token) = oauth_token {
+            if client.supports_oauth() {
+                headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            }
+        }
+
+        self.make_request(
+            "/browse",
             client,
             &context,
             payload,

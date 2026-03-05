@@ -35,6 +35,9 @@ bytes = "1.11.1"
 aes = "0.8.4"
 sysinfo = "0.38.2"
 moka = { version = "0.12.13", features = ["sync"] }
+symphonia-core = "0.5.5"
+tokio-util = "0.7.18"
+pin-project = "1.1.11"
 
 [dependencies.mimalloc]
 version = "0.1.48"
