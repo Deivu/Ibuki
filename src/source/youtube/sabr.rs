@@ -18,9 +18,6 @@ impl Sabr {
             .map(|c| (c.po_token.clone(), c.visitor_data.clone()))
             .unwrap_or((None, None));
 
-        let po_token = po_token.filter(|t| !t.is_empty() && t != "YOUR_PO_TOKEN_HERE");
-        let visitor_data = visitor_data.filter(|v| !v.is_empty() && v != "YOUR_VISITOR_DATA_HERE");
-
         if po_token.is_some() {
             info!("PoToken loaded from config");
         }
