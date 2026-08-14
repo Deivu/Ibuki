@@ -18,8 +18,10 @@ pub enum ClientType {
 #[serde(rename_all = "camelCase")]
 pub struct InnertubeContext {
     pub client: InnertubeClientInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub third_party: Option<InnertubeThirdParty>,
-    pub request: Option<InnertubeRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<InnertubeUser>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,6 +47,18 @@ pub struct InnertubeClientInfo {
     pub client_form_factor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_info: Option<ConfigInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_screen: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub android_sdk_version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_density_float: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_height_points: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_pixel_density: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_width_points: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -56,13 +70,14 @@ pub struct ConfigInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InnertubeThirdParty {
-    pub embed_url: String,
+    #[serde(flatten)]
+    pub fields: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InnertubeRequest {
-    pub use_ssl: bool,
+pub struct InnertubeUser {
+    pub locked_safety_mode: bool,
 }
 
 pub trait InnertubeClient: Send + Sync {
@@ -77,56 +92,83 @@ pub trait InnertubeClient: Send + Sync {
     fn extra_payload(&self) -> Option<serde_json::Value> {
         None
     }
+    fn player_params(&self) -> Option<&'static str> {
+        None
+    }
+    fn supports_oauth(&self) -> bool {
+        false
+    }
+    fn requires_pot(&self) -> bool {
+        false
+    }
+    fn use_embed_context(&self) -> bool {
+        true
+    }
 }
 
-// ---------------------------
-// ANDROID
-// ---------------------------
 pub struct AndroidClient;
 impl InnertubeClient for AndroidClient {
     fn name(&self) -> &'static str {
         "Android"
     }
+    fn use_embed_context(&self) -> bool {
+        false
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "ANDROID".to_string(),
-                client_version: "20.01.35".to_string(),
+                client_version: "19.44.38".to_string(),
                 user_agent: Some(
-                    "com.google.android.youtube/20.01.35 (Linux; U; Android 14) identity"
-                        .to_string(),
+                    "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip".to_string(),
                 ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
                 os_name: Some("Android".to_string()),
-                os_version: Some("14".to_string()),
+                os_version: Some("11".to_string()),
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: Some(30),
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser {
+                locked_safety_mode: false,
+            }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
             (
                 "User-Agent".to_string(),
-                "com.google.android.youtube/20.01.35 (Linux; U; Android 14) identity".to_string(),
+                "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip".to_string(),
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
+            ("X-YouTube-Client-Name".to_string(), "3".to_string()),
+            (
+                "X-YouTube-Client-Version".to_string(),
+                "19.44.38".to_string(),
+            ),
         ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        None
     }
 }
 
-// ---------------------------
-// ANDROID MUSIC
-// ---------------------------
 pub struct AndroidMusicClient;
 impl InnertubeClient for AndroidMusicClient {
     fn name(&self) -> &'static str {
         "AndroidMusic"
+    }
+    fn use_embed_context(&self) -> bool {
+        false
     }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
@@ -134,121 +176,149 @@ impl InnertubeClient for AndroidMusicClient {
                 client_name: "ANDROID_MUSIC".to_string(),
                 client_version: "7.27.52".to_string(),
                 user_agent: Some(
-                    "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip"
+                    "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip"
                         .to_string(),
                 ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
                 os_name: Some("Android".to_string()),
-                os_version: Some("14".to_string()),
+                os_version: Some("11".to_string()),
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: Some(30),
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser {
+                locked_safety_mode: false,
+            }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
             (
                 "User-Agent".to_string(),
-                "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip"
+                "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip"
                     .to_string(),
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
         ]
     }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAdgDAQ==")
+    }
 }
 
-// ---------------------------
-// ANDROID VR
-// ---------------------------
 pub struct AndroidVrClient;
 impl InnertubeClient for AndroidVrClient {
     fn name(&self) -> &'static str {
         "AndroidVR"
+    }
+    fn use_embed_context(&self) -> bool {
+        false
     }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "ANDROID_VR".to_string(),
                 client_version: "1.60.19".to_string(),
-                user_agent: Some("com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip".to_string()),
+                user_agent: Some("com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
                 os_name: Some("Android".to_string()),
-                os_version: Some("12".to_string()),
+                os_version: Some("12L".to_string()),
                 platform: Some("MOBILE".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: Some(32),
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
-            ("User-Agent".to_string(), "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip".to_string()),
+            ("User-Agent".to_string(), "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip".to_string()),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
             ("X-YouTube-Client-Name".to_string(), "84".to_string()),
             ("X-YouTube-Client-Version".to_string(), "1.60.19".to_string()),
         ]
     }
+    fn player_params(&self) -> Option<&'static str> {
+        None
+    }
 }
 
-// ---------------------------
-// IOS
-// ---------------------------
 pub struct IosClient;
 impl InnertubeClient for IosClient {
     fn name(&self) -> &'static str {
         "IOS"
     }
+    fn use_embed_context(&self) -> bool {
+        false
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "IOS".to_string(),
-                client_version: "20.03.02".to_string(),
+                client_version: "19.45.4".to_string(),
                 user_agent: Some(
-                    "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X)"
+                    "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
                         .to_string(),
                 ),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
                 os_name: Some("iOS".to_string()),
-                os_version: Some("18.2.1".to_string()),
+                os_version: Some("18.1.0".to_string()),
                 platform: Some("MOBILE".to_string()),
-                client_form_factor: Some("SMALL_FORM_FACTOR".to_string()),
+                client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser {
+                locked_safety_mode: false,
+            }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
         vec![
             (
                 "User-Agent".to_string(),
-                "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X)"
+                "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
                     .to_string(),
             ),
             ("X-Goog-Api-Format-Version".to_string(), "2".to_string()),
             ("X-YouTube-Client-Name".to_string(), "5".to_string()),
             (
                 "X-YouTube-Client-Version".to_string(),
-                "20.03.02".to_string(),
+                "19.45.4".to_string(),
             ),
         ]
     }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAdgDAQ==")
+    }
 }
 
-// ---------------------------
-// TV
-// ---------------------------
 pub struct TvClient;
 impl InnertubeClient for TvClient {
     fn name(&self) -> &'static str {
@@ -261,7 +331,7 @@ impl InnertubeClient for TvClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "TVHTML5".to_string(),
-                client_version: "7.20241223.10.00".to_string(),
+                client_version: "7.20250319.10.00".to_string(),
                 user_agent: Some("Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.6.1039866-gold (unlike Gecko) v8/8.8.278.14-jit gyp/25.lts.6.1039866-gold Starboard/16, like TV Safari/537.36".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
@@ -271,9 +341,15 @@ impl InnertubeClient for TvClient {
                 platform: Some("TV".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -283,11 +359,14 @@ impl InnertubeClient for TvClient {
             ("Referer".to_string(), "https://www.youtube.com/tv".to_string()),
         ]
     }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("2AMB")
+    }
+    fn supports_oauth(&self) -> bool {
+        true
+    }
 }
 
-// ---------------------------
-// TV EMBEDDED (TVHTML5_SIMPLY)
-// ---------------------------
 pub struct TvEmbeddedClient;
 impl InnertubeClient for TvEmbeddedClient {
     fn name(&self) -> &'static str {
@@ -299,8 +378,8 @@ impl InnertubeClient for TvEmbeddedClient {
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
-                client_name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER".to_string(),
-                client_version: "2.0".to_string(),
+                client_name: "TVHTML5_SIMPLY".to_string(),
+                client_version: "1.0".to_string(),
                 user_agent: Some("Mozilla/5.0 (SmartHub; SMART-TV; U; Linux/SmartTV; QM15A; Tizen 5.5) AppleWebKit/537.3 (KHTML, like Gecko) TV Safari/537.3".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
@@ -310,11 +389,21 @@ impl InnertubeClient for TvEmbeddedClient {
                 platform: Some("TV".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: Some(InnertubeThirdParty {
-                embed_url: "https://www.youtube.com/tv_embed".to_string(),
+                fields: {
+                    let mut m = serde_json::Map::new();
+                    m.insert("embedUrl".to_string(), serde_json::json!("https://www.youtube.com/tv_embed"));
+                    m
+                }
             }),
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -329,11 +418,11 @@ impl InnertubeClient for TvEmbeddedClient {
             "attestationRequest": { "omitBotguardData": true }
         }))
     }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("2AMB")
+    }
 }
 
-// ---------------------------
-// WEB
-// ---------------------------
 pub struct WebClient;
 impl InnertubeClient for WebClient {
     fn name(&self) -> &'static str {
@@ -342,23 +431,32 @@ impl InnertubeClient for WebClient {
     fn needs_cipher(&self) -> bool {
         true
     }
+    fn requires_pot(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "WEB".to_string(),
-                client_version: "2.20241223.01.00".to_string(),
-                user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36".to_string()),
+                client_version: "2.20250403.01.00".to_string(),
+                user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
-                os_name: Some("Windows".to_string()),
-                os_version: Some("10.0".to_string()),
-                platform: Some("DESKTOP".to_string()),
+                os_name: None,
+                os_version: None,
+                platform: None,
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -368,11 +466,11 @@ impl InnertubeClient for WebClient {
             ("Referer".to_string(), "https://www.youtube.com/".to_string()),
         ]
     }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("2AMB")
+    }
 }
 
-// ---------------------------
-// WEB REMIX
-// ---------------------------
 pub struct WebRemixClient;
 impl InnertubeClient for WebRemixClient {
     fn name(&self) -> &'static str {
@@ -385,19 +483,25 @@ impl InnertubeClient for WebRemixClient {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "WEB_REMIX".to_string(),
-                client_version: "1.20241223.01.00".to_string(),
-                user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36".to_string()),
+                client_version: "1.20240724.00.00".to_string(),
+                user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
                 visitor_data: None,
-                os_name: Some("Windows".to_string()),
-                os_version: Some("10.0".to_string()),
-                platform: Some("DESKTOP".to_string()),
+                os_name: None,
+                os_version: None,
+                platform: None,
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: None,
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -409,9 +513,6 @@ impl InnertubeClient for WebRemixClient {
     }
 }
 
-// ---------------------------
-// WEB EMBEDDED
-// ---------------------------
 pub struct WebEmbeddedClient;
 impl InnertubeClient for WebEmbeddedClient {
     fn name(&self) -> &'static str {
@@ -420,11 +521,14 @@ impl InnertubeClient for WebEmbeddedClient {
     fn needs_cipher(&self) -> bool {
         true
     }
+    fn requires_pot(&self) -> bool {
+        true
+    }
     fn context(&self) -> InnertubeContext {
         InnertubeContext {
             client: InnertubeClientInfo {
                 client_name: "WEB_EMBEDDED_PLAYER".to_string(),
-                client_version: "1.20241223.01.00".to_string(),
+                client_version: "1.20250401.01.00".to_string(),
                 user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36".to_string()),
                 gl: Some("US".to_string()),
                 hl: Some("en".to_string()),
@@ -434,11 +538,21 @@ impl InnertubeClient for WebEmbeddedClient {
                 platform: Some("DESKTOP".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: Some(InnertubeThirdParty {
-                embed_url: "https://www.youtube.com/embed".to_string(),
+                fields: {
+                    let mut m = serde_json::Map::new();
+                    m.insert("embedUrl".to_string(), serde_json::json!("https://www.youtube.com/embed"));
+                    m
+                }
             }),
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -448,11 +562,11 @@ impl InnertubeClient for WebEmbeddedClient {
             ("Referer".to_string(), "https://www.youtube.com/embed".to_string()),
         ]
     }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("2AMB")
+    }
 }
 
-// ---------------------------
-// WEB PARENT TOOLS
-// ---------------------------
 pub struct WebParentToolsClient;
 impl InnertubeClient for WebParentToolsClient {
     fn name(&self) -> &'static str {
@@ -475,11 +589,21 @@ impl InnertubeClient for WebParentToolsClient {
                 platform: Some("DESKTOP".to_string()),
                 client_form_factor: None,
                 config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
             },
             third_party: Some(InnertubeThirdParty {
-                embed_url: "https://www.youtube.com/embed".to_string(),
+                fields: {
+                    let mut m = serde_json::Map::new();
+                    m.insert("embedUrl".to_string(), serde_json::json!("https://www.youtube.com/embed"));
+                    m
+                }
             }),
-            request: Some(InnertubeRequest { use_ssl: true }),
+            user: Some(InnertubeUser { locked_safety_mode: false }),
         }
     }
     fn extra_headers(&self) -> Vec<(String, String)> {
@@ -488,6 +612,57 @@ impl InnertubeClient for WebParentToolsClient {
             ("Origin".to_string(), "https://www.youtube.com".to_string()),
             ("Referer".to_string(), "https://www.youtube.com/mod".to_string()),
         ]
+    }
+}
+
+pub struct MWebClient;
+impl InnertubeClient for MWebClient {
+    fn name(&self) -> &'static str {
+        "MWeb"
+    }
+    fn needs_cipher(&self) -> bool {
+        true
+    }
+    fn requires_pot(&self) -> bool {
+        true
+    }
+    fn context(&self) -> InnertubeContext {
+        InnertubeContext {
+            client: InnertubeClientInfo {
+                client_name: "MWEB".to_string(),
+                client_version: "2.20240726.11.00".to_string(),
+                user_agent: Some(
+                    "Mozilla/5.0 (Linux; Android 11; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Mobile Safari/537.36,gzip(gfe)".to_string(),
+                ),
+                gl: Some("US".to_string()),
+                hl: Some("en".to_string()),
+                visitor_data: None,
+                os_name: Some("Android".to_string()),
+                os_version: Some("11".to_string()),
+                platform: Some("MOBILE".to_string()),
+                client_form_factor: Some("SMALL_FORM_FACTOR".to_string()),
+                config_info: None,
+                client_screen: None,
+                android_sdk_version: None,
+                screen_density_float: None,
+                screen_height_points: None,
+                screen_pixel_density: None,
+                screen_width_points: None,
+            },
+            third_party: None,
+            user: Some(InnertubeUser { locked_safety_mode: false }),
+        }
+    }
+    fn extra_headers(&self) -> Vec<(String, String)> {
+        vec![
+            (
+                "User-Agent".to_string(),
+                "Mozilla/5.0 (Linux; Android 11; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Mobile Safari/537.36,gzip(gfe)".to_string(),
+            ),
+        ]
+    }
+    fn player_params(&self) -> Option<&'static str> {
+        Some("CgIIAdgDAQ==")
     }
 }
 
@@ -503,6 +678,7 @@ pub fn get_client_by_name(name: &str) -> Option<Box<dyn InnertubeClient>> {
         "webremix" | "web_remix" => Some(Box::new(WebRemixClient)),
         "webparenttools" | "web_parent_tools" => Some(Box::new(WebParentToolsClient)),
         "ios" => Some(Box::new(IosClient)),
+        "mweb" | "m_web" => Some(Box::new(MWebClient)),
         _ => None,
     }
 }

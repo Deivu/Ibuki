@@ -9,7 +9,6 @@ pub enum UrlType {
     Unknown,
 }
 
-/// Innertube client context sent with every API request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InnertubeContext {
@@ -57,7 +56,6 @@ pub struct InnertubeRequest {
     pub use_ssl: bool,
 }
 
-/// Player API request body
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerRequestBody {
@@ -67,7 +65,6 @@ pub struct PlayerRequestBody {
     pub racy_check_ok: bool,
 }
 
-/// Search API request body
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchRequestBody {
@@ -77,7 +74,6 @@ pub struct SearchRequestBody {
     pub params: Option<String>,
 }
 
-/// Innertube player API response (partial — only fields we need)
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerResponse {
@@ -144,7 +140,6 @@ pub struct Format {
     pub content_length: Option<String>,
 }
 
-/// Simplified stream info returned by innertube clients
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
     pub url: String,
@@ -152,11 +147,9 @@ pub struct StreamInfo {
     pub mime_type: String,
     pub bitrate: u64,
     pub is_audio: bool,
-    /// The User-Agent of the innertube client that fetched this stream
     pub user_agent: String,
 }
 
-/// Search result video renderer from innertube search API
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResponse {
@@ -273,14 +266,11 @@ impl UrlPatterns {
         UrlType::Unknown
     }
 
-    /// Extract video ID from a URL
     pub fn extract_video_id(&self, url: &str) -> Option<String> {
         self.video_id
             .captures(url)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
-
-    /// Extract playlist ID from a URL
     pub fn extract_playlist_id(&self, url: &str) -> Option<String> {
         self.playlist_id
             .captures(url)
@@ -309,7 +299,6 @@ pub fn get_runs_text(runs: &Option<TextRuns>) -> Option<String> {
     })
 }
 
-/// Parse a duration string like "3:42" or "1:05:30" into milliseconds
 pub fn parse_duration_text(text: &str) -> u64 {
     let parts: Vec<&str> = text.split(':').collect();
     let mut seconds: u64 = 0;
@@ -333,7 +322,6 @@ pub fn parse_duration_text(text: &str) -> u64 {
     seconds * 1000
 }
 
-/// Get the best thumbnail URL from a video details or renderer
 pub fn get_best_thumbnail(container: &Option<ThumbnailContainer>) -> Option<String> {
     container.as_ref().and_then(|tc| {
         tc.thumbnails.as_ref().and_then(|thumbs| {
@@ -342,7 +330,6 @@ pub fn get_best_thumbnail(container: &Option<ThumbnailContainer>) -> Option<Stri
     })
 }
 
-/// Select best audio stream from streaming data
 pub fn select_best_audio(streaming_data: &StreamingData, audio_itags: &[u32]) -> Option<StreamInfo> {
     let mut all_formats = Vec::new();
 
@@ -353,7 +340,6 @@ pub fn select_best_audio(streaming_data: &StreamingData, audio_itags: &[u32]) ->
         all_formats.extend(formats.iter());
     }
 
-    // Filter to audio formats only
     let audio_formats: Vec<&Format> = all_formats
         .iter()
         .filter(|f| {
@@ -364,7 +350,6 @@ pub fn select_best_audio(streaming_data: &StreamingData, audio_itags: &[u32]) ->
         .copied()
         .collect();
 
-    // Try preferred itags first
     for itag in audio_itags {
         if let Some(format) = audio_formats.iter().find(|f| f.itag == *itag) {
             if let Some(url) = &format.url {
@@ -380,7 +365,6 @@ pub fn select_best_audio(streaming_data: &StreamingData, audio_itags: &[u32]) ->
         }
     }
 
-    // Fallback: pick highest bitrate audio
     let best = audio_formats
         .iter()
         .filter(|f| f.url.is_some())
@@ -398,7 +382,6 @@ pub fn select_best_audio(streaming_data: &StreamingData, audio_itags: &[u32]) ->
     })
 }
 
-/// Select best video stream from streaming data (used as fallback)
 pub fn select_best_video(streaming_data: &StreamingData, video_itags: &[u32]) -> Option<StreamInfo> {
     let mut all_formats = Vec::new();
 

@@ -30,9 +30,8 @@ impl InnertubeApi {
         context: &InnertubeContext,
         payload: Value,
         extra_headers: &[(String, String)],
-        http_client: &Client,
-        bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
+        let (http_client, bound_ip) = crate::get_client();
         let mut req_builder = http_client.post(format!("{}{}", YOUTUBE_API_URL, endpoint));
         for (k, v) in extra_headers {
             req_builder = req_builder.header(k, v);
@@ -110,8 +109,6 @@ impl InnertubeApi {
         params: Option<&str>,
         visitor_data: Option<&str>,
         oauth_token: Option<&str>,
-        http_client: &Client,
-        bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
         let mut payload = json!({
             "query": query,
@@ -138,16 +135,8 @@ impl InnertubeApi {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
         }
 
-        self.make_request(
-            "/search",
-            client,
-            &context,
-            payload,
-            &headers,
-            http_client,
-            bound_ip,
-        )
-        .await
+        self.make_request("/search", client, &context, payload, &headers)
+            .await
     }
 
     pub async fn player(
@@ -160,8 +149,6 @@ impl InnertubeApi {
         po_token: Option<&str>,
         oauth_token: Option<&str>,
         signature_timestamp: Option<u32>,
-        http_client: &Client,
-        bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
         let mut payload = json!({
             "videoId": video_id,
@@ -224,16 +211,8 @@ impl InnertubeApi {
             }
         }
 
-        self.make_request(
-            "/player",
-            client,
-            &context,
-            payload,
-            &headers,
-            http_client,
-            bound_ip,
-        )
-        .await
+        self.make_request("/player", client, &context, payload, &headers)
+            .await
     }
 
     pub async fn next(
@@ -244,8 +223,6 @@ impl InnertubeApi {
         client: &dyn InnertubeClient,
         visitor_data: Option<&str>,
         oauth_token: Option<&str>,
-        http_client: &Client,
-        bound_ip: Option<std::net::IpAddr>,
     ) -> Result<Value, ResolverError> {
         let mut payload = json!({});
 
@@ -280,15 +257,7 @@ impl InnertubeApi {
             headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
         }
 
-        self.make_request(
-            "/next",
-            client,
-            &context,
-            payload,
-            &headers,
-            http_client,
-            bound_ip,
-        )
-        .await
+        self.make_request("/next", client, &context, payload, &headers)
+            .await
     }
 }
