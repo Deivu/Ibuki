@@ -2,7 +2,6 @@ use serde::Deserialize;
 
 pub mod endpoints;
 pub mod global;
-pub mod youtube;
 
 #[derive(Deserialize, Debug)]
 pub struct PlayerMethodsPath {

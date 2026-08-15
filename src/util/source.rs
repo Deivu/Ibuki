@@ -3,35 +3,23 @@ use crate::SOURCES;
 use crate::models::{ApiTrack, ApiTrackResult};
 use async_trait::async_trait;
 use reqwest::Client;
-use songbird::input::Input;
+use songbird::tracks::Track;
 
 #[macro_export]
 macro_rules! register_source {
     ($source_type:ty) => {{
         let instance = Box::new(<$source_type>::new(None));
-        match instance.init().await {
-            Ok(_) => {
-                let name = instance.get_name().to_string();
-                SOURCES.insert(name.clone(), FixAsyncTraitSource(instance));
-                tracing::info!("Registered Source: [{}]", name);
-            }
-            Err(e) => {
-                tracing::error!("Failed to initialize source {}: {:?}", stringify!($source_type), e);
-            }
-        }
+        instance.init().await.expect("Failed to initialize source");
+        let name = instance.get_name().to_string();
+        SOURCES.insert(name.clone(), FixAsyncTraitSource(instance));
+        tracing::info!("Registered Source: [{}]", name);
     }};
     ($source_type:ty, $($arg:expr),+) => {{
         let instance = Box::new(<$source_type>::new($($arg),+));
-        match instance.init().await {
-            Ok(_) => {
-                let name = instance.get_name().to_string();
-                SOURCES.insert(name.clone(), FixAsyncTraitSource(instance));
-                tracing::info!("Registered Source: [{}]", name);
-            }
-            Err(e) => {
-                tracing::error!("Failed to initialize source {}: {:?}", stringify!($source_type), e);
-            }
-        }
+        instance.init().await.expect("Failed to initialize source");
+        let name = instance.get_name().to_string();
+        SOURCES.insert(name.clone(), FixAsyncTraitSource(instance));
+        tracing::info!("Registered Source: [{}]", name);
     }};
 }
 
@@ -47,7 +35,7 @@ pub trait Source: Send + Sync + 'static {
     fn parse_query(&self, url: &str) -> Option<Query>;
     async fn init(&self) -> Result<(), ResolverError>;
     async fn resolve(&self, query: Query) -> Result<Option<ApiTrackResult>, ResolverError>;
-    async fn make_playable(&self, track: ApiTrack) -> Result<Input, ResolverError>;
+    async fn make_playable(&self, track: ApiTrack) -> Result<Track, ResolverError>;
 }
 
 /// http://github.com/dtolnay/async-trait/issues/141
@@ -60,7 +48,7 @@ impl FixAsyncTraitSource {
 }
 
 impl ApiTrack {
-    pub async fn make_playable(self) -> Result<Input, ResolverError> {
+    pub async fn make_playable(self) -> Result<Track, ResolverError> {
         let Some(client) = SOURCES.get(&self.info.source_name) else {
             return Err(ResolverError::InvalidSource(self.info.source_name));
         };

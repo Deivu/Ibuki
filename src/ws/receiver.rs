@@ -1,4 +1,5 @@
 use crate::voice::player::Player;
+use crate::ws::client::WebSocketClient;
 use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
 use futures::StreamExt;
@@ -13,6 +14,7 @@ use tokio::task::JoinHandle;
 
 pub struct ReceiverActorArgs {
     pub stream: SplitStream<WebSocket>,
+    pub client_ref: ActorRef<WebSocketClient>,
     pub dropped: Arc<AtomicBool>,
     pub user_id: UserId,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
@@ -40,11 +42,7 @@ impl Actor for ReceiverActor {
                         break;
                     }
                     Message::Text(data) => {
-                        tracing::warn!(
-                            "Received unexpected text message from client for user {}: {}. Incoming WebSocket messages are not supported in v4; please use the REST API instead.",
-                            args.user_id,
-                            data
-                        );
+                        tracing::debug!("Received message: {}", data);
                     }
                     Message::Ping(_) | Message::Pong(_) => {}
                     _ => {}
@@ -59,9 +57,8 @@ impl Actor for ReceiverActor {
                 tracing::info!("Connection can be resumed within {} seconds", timeout);
                 tokio::time::sleep(tokio::time::Duration::from_secs(timeout as u64)).await;
             }
-            for ref_entry in args.players.iter() {
-                ref_entry.value().kill();
-            }
+
+            // todo!() disconnect_all and clear refactor soon for clearer code
             args.players.clear();
 
             tracing::info!("Cleaned up WebSocket client for user {}", args.user_id);

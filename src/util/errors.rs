@@ -1,7 +1,6 @@
 use axum::body::Body;
 use axum::http::{self, StatusCode};
 use axum::response::{IntoResponse, Response};
-use kameo::Reply;
 use kameo::error::HookError;
 use kameo::prelude::SendError;
 use std::sync::Arc;
@@ -58,10 +57,6 @@ pub enum ResolverError {
     FailedStatusCode(String),
     #[error("Source {0} is not supported")]
     InvalidSource(String),
-    #[error("Invalid URL provided")]
-    InvalidUrl,
-    #[error("Decryption error: {0}")]
-    DecryptionError(String),
     #[error("{0}")]
     Custom(String),
     #[error(transparent)]
@@ -72,6 +67,8 @@ pub enum ResolverError {
     SerdeJson(#[from] serde_json::Error),
     #[error(transparent)]
     AudioStream(#[from] songbird::input::AudioStreamError),
+    #[error(transparent)]
+    Youtube(#[from] rustypipe::error::Error),
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
@@ -94,7 +91,7 @@ pub enum PlayerManagerError {
     MissingConnection,
 }
 
-#[derive(Error, Clone, Debug, Reply)]
+#[derive(Error, Clone, Debug)]
 pub enum PlayerError {
     #[error("A driver is required to execute this action")]
     MissingDriver,
@@ -122,8 +119,6 @@ pub enum Base64DecodeError {
     Base64Decode(#[from] base64::DecodeError),
     #[error("Unknown version detected. Got {0}")]
     UnknownVersion(u8),
-    #[error("{0}")]
-    Custom(String),
 }
 
 #[derive(Error, Debug)]
@@ -148,8 +143,6 @@ pub enum EndpointError {
     MissingOption(&'static str),
     #[error("Unprocessable Entity due to: {0}")]
     UnprocessableEntity(&'static str),
-    #[error("Invalid IP address: {0}")]
-    InvalidIpAddress(String),
     #[error("Failed to send a message to a task: {0}")]
     FailedMessage(String),
     #[error(transparent)]
@@ -197,7 +190,7 @@ impl IntoResponse for EndpointError {
             self
         );
 
-        let (status, message) = match self {
+        let tuple = match self {
             EndpointError::MissingOption(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             EndpointError::UnprocessableEntity(_) => {
                 (StatusCode::UNPROCESSABLE_ENTITY, self.to_string())
@@ -243,27 +236,9 @@ impl IntoResponse for EndpointError {
             EndpointError::FailedMessage(actor_error) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, actor_error.to_string())
             }
-            EndpointError::InvalidIpAddress(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             EndpointError::Unauthorized => (StatusCode::FORBIDDEN, self.to_string()),
         };
 
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        let error_body = serde_json::json!( {
-            "timestamp": timestamp,
-            "status": status.as_u16(),
-            "error": status.canonical_reason().unwrap_or("Unknown"),
-            "message": message,
-            "path": ""
-        });
-
-        Response::builder()
-            .status(status)
-            .header("Content-Type", "application/json")
-            .body(Body::from(error_body.to_string()))
-            .unwrap()
+        tuple.into_response()
     }
 }

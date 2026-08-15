@@ -21,9 +21,8 @@ pub async fn ws(
 ) -> Result<Response<Body>, EndpointError> {
     let user_agent = headers
         .get("User-Agent")
-        .or_else(|| headers.get("Client-Name"))
-        .map(|v| v.to_str().unwrap_or("Unknown"))
-        .unwrap_or("Unknown");
+        .ok_or(EndpointError::MissingOption("User-Agent"))?
+        .to_str()?;
 
     let user_id = headers
         .get("User-Id")

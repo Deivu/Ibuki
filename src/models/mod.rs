@@ -76,14 +76,11 @@ pub struct ApiTrackLoadException {
     pub cause: String,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiVoiceData {
-    #[serde(default)]
     pub token: String,
-    #[serde(default)]
     pub endpoint: String,
-    #[serde(default)]
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected: Option<bool>,
@@ -134,8 +131,6 @@ pub struct ApiTrack {
     pub encoded: String,
     pub info: ApiTrackInfo,
     pub plugin_info: Empty,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_data: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -209,8 +204,6 @@ pub struct UpdateApiPlayerTrack {
     pub encoded: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_data: Option<Value>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
@@ -230,8 +223,6 @@ pub struct ApiPlayerOptions {
     pub paused: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<ApiVoiceData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filters: Option<LavalinkFilters>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
@@ -325,44 +316,6 @@ pub struct LavalinkFilters {
     pub channel_mix: Option<ChannelMix>,
     pub low_pass: Option<LowPass>,
     pub plugin_filters: Option<Value>,
-}
-
-impl LavalinkFilters {
-    pub fn merge(&mut self, other: LavalinkFilters) {
-        if other.volume.is_some() {
-            self.volume = other.volume;
-        }
-        if other.equalizer.is_some() {
-            self.equalizer = other.equalizer;
-        }
-        if other.karaoke.is_some() {
-            self.karaoke = other.karaoke;
-        }
-        if other.timescale.is_some() {
-            self.timescale = other.timescale;
-        }
-        if other.tremolo.is_some() {
-            self.tremolo = other.tremolo;
-        }
-        if other.vibrato.is_some() {
-            self.vibrato = other.vibrato;
-        }
-        if other.rotation.is_some() {
-            self.rotation = other.rotation;
-        }
-        if other.distortion.is_some() {
-            self.distortion = other.distortion;
-        }
-        if other.channel_mix.is_some() {
-            self.channel_mix = other.channel_mix;
-        }
-        if other.low_pass.is_some() {
-            self.low_pass = other.low_pass;
-        }
-        if other.plugin_filters.is_some() {
-            self.plugin_filters = other.plugin_filters;
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

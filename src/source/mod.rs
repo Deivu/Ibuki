@@ -1,10 +1,4 @@
-pub mod amazonmusic;
-pub mod applemusic;
 pub mod deezer;
-// pub mod gaana;
 pub mod http;
-pub mod jiosaavn;
-pub mod songlink;
-pub mod soundcloud;
-pub mod spotify;
 pub mod youtube;
+pub mod ytdlp;
