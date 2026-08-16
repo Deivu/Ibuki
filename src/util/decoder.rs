@@ -4,23 +4,23 @@
 // Thanks to @Takase (https://github.com/takase1121) for helping me with this
 //
 use crate::constants::TRACK_INFO_VERSIONED;
-use crate::models::ApiTrackInfo;
-use crate::util::errors::Base64DecodeError;
+use anyhow::{Result, bail};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use byteorder::BigEndian;
 use byteorder::ReadBytesExt;
+use impero_source::api::ApiTrackInfo;
 use std::io::Cursor;
 use std::io::Read;
 
-fn read_string(rdr: &mut Cursor<Vec<u8>>) -> Result<String, Base64DecodeError> {
+fn read_string(rdr: &mut Cursor<Vec<u8>>) -> Result<String> {
     let len = rdr.read_u16::<BigEndian>()?;
     let mut buf: Vec<u8> = vec![0; len as usize];
     rdr.read_exact(&mut buf)?;
     Ok(String::from_utf8(buf)?)
 }
 
-fn optional_read_string(rdr: &mut Cursor<Vec<u8>>) -> Result<Option<String>, Base64DecodeError> {
+fn optional_read_string(rdr: &mut Cursor<Vec<u8>>) -> Result<Option<String>> {
     if rdr.read_u8()? != 0 {
         Ok(Some(read_string(rdr)?))
     } else {
@@ -31,7 +31,7 @@ fn optional_read_string(rdr: &mut Cursor<Vec<u8>>) -> Result<Option<String>, Bas
 /**
  * This decodes lavalink base64 strings just fine
  */
-pub fn decode_base64(encoded: &String) -> Result<ApiTrackInfo, Base64DecodeError> {
+pub fn decode_base64(encoded: &String) -> Result<ApiTrackInfo> {
     let decoded = BASE64_STANDARD.decode(encoded)?;
 
     let mut rdr = Cursor::new(decoded);
@@ -46,7 +46,7 @@ pub fn decode_base64(encoded: &String) -> Result<ApiTrackInfo, Base64DecodeError
     };
 
     if version > 3 || version == 0 {
-        return Err(Base64DecodeError::UnknownVersion(version));
+        bail!("Invalid version: {}", version);
     }
 
     let title = read_string(&mut rdr)?;

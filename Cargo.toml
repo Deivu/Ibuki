@@ -2,7 +2,6 @@
 name = "ibuki"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85.0"
 
 [dependencies]
 base64 = "0.23.1"
@@ -16,7 +15,6 @@ async-trait = "0.1.92"
 serde_json = "1.0.151"
 tower = "0.5.3"
 byteorder = "1.5.0"
-thiserror = "2.0.20"
 cap = "0.1.2"
 perf_monitor = "0.2.1"
 regex = "1.13.1"
@@ -24,6 +22,17 @@ hex = "0.4.3"
 cbc = "0.2.1"
 rand_agents = "1.0.0"
 block-padding = "0.4.2"
+anyhow = "1.0.104"
+bytesize = "2.7.0"
+rustls = { version = "0.23.43", features = ["ring"] }
+
+[dependencies.impero-source]
+git = "https://github.com/Deivu/Impero.git"
+rev = "7496e4e03173685308afe7f73fe3ff9f5ec83963"
+
+[dependencies.impero-filter]
+git = "https://github.com/Deivu/Impero.git"
+rev = "7496e4e03173685308afe7f73fe3ff9f5ec83963"
 
 [dependencies.mimalloc]
 version = "0.1.48"

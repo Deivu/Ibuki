@@ -3,11 +3,12 @@ use super::player::{
     SendToPlayerWebsocket, Stop, UpdateFromInternalEvent,
 };
 use crate::models::{
-    ApiNodeMessage, ApiPlayerEvents, ApiPlayerUpdate, ApiTrack, ApiTrackEnd, ApiTrackStart,
+    ApiNodeMessage, ApiPlayerEvents, ApiPlayerUpdate, ApiTrackEnd, ApiTrackStart,
     ApiWebSocketClosed,
 };
 use async_trait::async_trait;
 use axum::extract::ws::{Message, Utf8Bytes};
+use impero_source::api::ApiTrack;
 use kameo::actor::{ActorRef, WeakActorRef};
 use songbird::CoreEvent;
 use songbird::Driver;
@@ -21,6 +22,8 @@ use songbird::model::CloseCode;
 use songbird::tracks::{TrackHandle, TrackState};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+// note: i need to merge the models at some point, right now they are separated by impero & ibuki
 
 enum DataResult {
     // probably usable in future
@@ -99,7 +102,7 @@ impl EventHandler for PlayerEvent {
                 let (code, message) = {
                     // todo: make this have the enum as reason
                     if let Some(DisconnectReason::WsClosed(Some(code))) = info.reason {
-                        match code {
+                        match &code {
                             CloseCode::UnknownOpcode => (4001, "Unknown Op Code"),
                             CloseCode::InvalidPayload => (4003, "Invalid Payload"),
                             CloseCode::NotAuthenticated => (4004, "Not Authenticated"),
@@ -112,6 +115,10 @@ impl EventHandler for PlayerEvent {
                             CloseCode::Disconnected => (4013, "Disconnected"),
                             CloseCode::VoiceServerCrash => (4015, "Voice Server Crash"),
                             CloseCode::UnknownEncryptionMode => (4016, "Unknown Encryption Mode"),
+                            CloseCode::DaveProtocolRequired => (4017, "Dave Protocol Required"),
+                            CloseCode::BadRequest => (4020, "Bad Request"),
+                            CloseCode::RateLimited => (4021, "Rate Limited"),
+                            CloseCode::CallTerminated => (4022, "Call Terminated"),
                         }
                     } else {
                         (1000, "Graceful close")

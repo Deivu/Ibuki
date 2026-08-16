@@ -1,25 +1,27 @@
 use crate::constants::VERSION;
-use crate::util::errors::EndpointError;
-use axum::body::Body;
 use axum::extract::Path;
 use axum::extract::Request;
-use axum::http::Response;
+use axum::http::StatusCode;
 use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
 
 pub async fn check(
     Path(params): Path<HashMap<String, String>>,
     request: Request,
     next: Next,
-) -> Result<Response<Body>, EndpointError> {
-    if params
-        .get("version")
-        .ok_or(EndpointError::UnprocessableEntity("Unsupported version"))?
-        .as_str()
-        != VERSION.to_string().as_str()
-    {
-        return Err(EndpointError::UnprocessableEntity("Unsupported version"));
+) -> Response {
+    let Some(version) = params.get("version").and_then(|s| s.parse::<u8>().ok()) else {
+        tracing::debug!("No version provided",);
+
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    if version != VERSION {
+        tracing::debug!("Invalid version provided");
+
+        return StatusCode::NOT_FOUND.into_response();
     }
 
-    Ok(next.run(request).await)
+    next.run(request).await
 }

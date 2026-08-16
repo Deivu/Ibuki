@@ -1,7 +1,7 @@
 use super::player::{Connect, Player, PlayerOptions};
 use crate::models::ApiVoiceData;
-use crate::util::errors::PlayerManagerError;
 use crate::ws::client::WebSocketClient;
+use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
 use kameo::actor::{ActorRef, Spawn, WeakActorRef};
@@ -35,12 +35,13 @@ impl PlayerManager {
         self.players.get(guild_id)
     }
 
-    pub async fn create_player(
-        &self,
-        options: CreatePlayerOptions,
-    ) -> Result<(), PlayerManagerError> {
+    pub async fn create_player(&self, options: CreatePlayerOptions) -> Result<()> {
         if let Some(player) = self.get_player(&options.guild_id) {
-            player.wait_for_startup_result().await?;
+            player
+                .wait_for_startup_result()
+                .await
+                .map_err(|e| anyhow!(format!("{:?}", e)))?;
+
             player
                 .ask(Connect {
                     server_update: options.server_update,
@@ -49,6 +50,7 @@ impl PlayerManager {
                 .await?;
             return Ok(());
         }
+
         let options = PlayerOptions {
             websocket: self.websocket.clone(),
             config: options.config,
@@ -57,7 +59,12 @@ impl PlayerManager {
             server_update: options.server_update,
             players: self.players.clone(),
         };
-        Player::spawn(options).wait_for_startup_result().await?;
+
+        Player::spawn(options)
+            .wait_for_startup_result()
+            .await
+            .map_err(|e| anyhow!(format!("{:?}", e)))?;
+
         Ok(())
     }
 

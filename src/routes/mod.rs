@@ -1,7 +1,30 @@
+use anyhow::Error;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 
 pub mod endpoints;
 pub mod global;
+
+pub type ApiResult<T> = Result<T, ApiError>;
+
+pub struct ApiError(Error);
+
+impl ApiError {
+    pub fn new<E>(error: E) -> Self
+    where
+        E: Into<Error>,
+    {
+        Self(error.into())
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        tracing::error!(error = ?self.0, "Request failed");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    }
+}
 
 #[derive(Deserialize, Debug)]
 pub struct PlayerMethodsPath {

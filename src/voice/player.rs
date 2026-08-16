@@ -1,12 +1,14 @@
 use super::events::PlayerEvent;
 use crate::CONFIG;
 use crate::SCHEDULER;
-use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty, LavalinkFilters};
+use crate::SOURCES;
+use crate::models::{ApiPlayer, ApiPlayerState, ApiVoiceData, LavalinkFilters};
 use crate::util::decoder::decode_base64;
-use crate::util::errors::PlayerError;
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
+use anyhow::{Error, Result, anyhow};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
+use impero_source::api::ApiTrack;
 use kameo::actor::{ActorRef, WeakActorRef};
 use kameo::error::ActorStopReason;
 use kameo::message::Context;
@@ -18,8 +20,15 @@ use songbird::Driver;
 use songbird::Event;
 use songbird::TrackEvent;
 use songbird::driver::Bitrate;
-use songbird::id::{GuildId, UserId};
+use songbird::id::{ChannelId, GuildId, UserId};
+use songbird::input::AsyncAdapterStream;
+use songbird::input::AudioStream;
+use songbird::input::Input;
+use songbird::input::LiveInput;
+use songbird::tracks::Track;
 use songbird::tracks::TrackHandle;
+use std::num::NonZeroU64;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -65,9 +74,25 @@ pub struct Player {
     internal: PlayerInternal,
 }
 
+// note: kameo requires clone for their error trait -_-
+#[derive(Clone, Debug)]
+pub struct AnnoyingError {
+    pub message: String,
+    pub backtrace: Option<String>,
+}
+
+impl From<Error> for AnnoyingError {
+    fn from(error: Error) -> Self {
+        Self {
+            message: error.to_string(),
+            backtrace: None,
+        }
+    }
+}
+
 impl Actor for Player {
     type Args = PlayerOptions;
-    type Error = PlayerError;
+    type Error = AnnoyingError;
 
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let player = Player::new(args, actor_ref.downgrade()).await?;
@@ -113,10 +138,7 @@ impl From<&Player> for ApiPlayer {
 
 #[messages]
 impl Player {
-    pub async fn new(
-        options: PlayerOptions,
-        actor_ref: WeakActorRef<Player>,
-    ) -> Result<Self, PlayerError> {
+    pub async fn new(options: PlayerOptions, actor_ref: WeakActorRef<Player>) -> Result<Self> {
         let mut player = Player {
             guild_id: options.guild_id,
             track: None,
@@ -168,9 +190,11 @@ impl Player {
         &mut self,
         server_update: ApiVoiceData,
         config: Option<SongbirdConfig>,
-    ) -> Result<(), PlayerError> {
+    ) -> Result<()> {
+        let channel_id = NonZeroU64::from_str(&server_update.channel_id)?;
+
         let connection = ConnectionInfo {
-            channel_id: None,
+            channel_id: ChannelId::from(channel_id),
             endpoint: server_update.endpoint.to_owned(),
             guild_id: self.guild_id,
             session_id: server_update.session_id.to_owned(),
@@ -237,16 +261,31 @@ impl Player {
     }
 
     #[message]
-    pub async fn play(&mut self, encoded: String) -> Result<(), PlayerError> {
+    pub async fn play(&mut self, encoded: String) -> Result<()> {
         let info = decode_base64(&encoded)?;
 
         let api_track = ApiTrack {
             encoded,
             info,
-            plugin_info: Empty,
+            plugin_info: None,
+            user_data: None,
         };
 
-        let mut track = api_track.make_playable().await?;
+        let source = SOURCES
+            .get(&api_track.info.source_name)
+            .ok_or_else(|| anyhow!("Source {} is not loaded", api_track.info.source_name))?;
+
+        let playable = source.fetch(api_track).await?;
+        let adapter = AsyncAdapterStream::new(Box::new(playable), 64 * 1024);
+
+        let input = Input::Live(
+            LiveInput::Raw(AudioStream {
+                input: Box::new(adapter),
+            }),
+            None,
+        );
+
+        let mut track = Track::new(input);
 
         if self.volume as f32 != track.volume {
             track = track.volume(self.volume as f32);
@@ -258,7 +297,7 @@ impl Player {
             .internal
             .driver
             .as_mut()
-            .ok_or(PlayerError::MissingDriver)?;
+            .ok_or_else(|| anyhow!("No player driver found inside songbird"))?;
 
         let track_handle = driver.play_only(track);
 

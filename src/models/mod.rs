@@ -1,3 +1,4 @@
+use impero_source::api::ApiTrack;
 use kameo::Reply;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -22,65 +23,12 @@ where
     se.serialize_str(num.to_string().as_str())
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Severity {
-    Common,
-    Suspicious,
-    Fault,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LoadType {
-    Track,
-    Playlist,
-    Search,
-    Empty,
-    Error,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[serde(tag = "loadType", content = "data")]
-pub enum ApiTrackResult {
-    Track(ApiTrack),
-    Playlist(ApiTrackPlaylist),
-    Search(Vec<ApiTrack>),
-    Error(ApiTrackLoadException),
-    Empty(Option<Empty>),
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Empty;
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiPlaylistInfo {
-    pub name: String,
-    pub selected_track: i32,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiTrackPlaylist {
-    pub info: ApiPlaylistInfo,
-    pub plugin_info: Empty,
-    pub tracks: Vec<ApiTrack>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ApiTrackLoadException {
-    pub message: String,
-    pub severity: Severity,
-    pub cause: String,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiVoiceData {
     pub token: String,
     pub endpoint: String,
+    pub channel_id: String,
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected: Option<bool>,
@@ -107,30 +55,6 @@ pub struct ApiPlayer {
     pub state: ApiPlayerState,
     pub voice: ApiVoiceData,
     pub filters: LavalinkFilters,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiTrackInfo {
-    pub identifier: String,
-    pub is_seekable: bool,
-    pub author: String,
-    pub length: u64,
-    pub is_stream: bool,
-    pub position: u64,
-    pub title: String,
-    pub uri: Option<String>,
-    pub artwork_url: Option<String>,
-    pub isrc: Option<String>,
-    pub source_name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiTrack {
-    pub encoded: String,
-    pub info: ApiTrackInfo,
-    pub plugin_info: Empty,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

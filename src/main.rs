@@ -1,11 +1,7 @@
 #![recursion_limit = "256"]
 use crate::models::{ApiCpu, ApiMemory, ApiNodeMessage, ApiStats};
-use crate::source::deezer::source::Deezer;
-use crate::source::http::Http;
-use crate::source::youtube::Youtube;
 use crate::util::config::Config;
 use crate::util::headers::generate_headers;
-use crate::util::source::{FixAsyncTraitSource, Source};
 use crate::util::task::{AddTask, TasksManager};
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use axum::Router;
@@ -16,6 +12,7 @@ use bytesize::ByteSize;
 use cap::Cap;
 use dashmap::DashMap;
 use dotenv::dotenv;
+use impero_source::plugin::Plugin;
 use kameo::actor::ActorRef;
 use mimalloc::MiMalloc;
 use reqwest::{Client, ClientBuilder};
@@ -23,7 +20,7 @@ use songbird::driver::Scheduler;
 use songbird::id::UserId;
 use std::env::set_var;
 use std::net::SocketAddr;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use tokio::main;
 use tokio::net;
 use tokio::task::JoinSet;
@@ -35,8 +32,8 @@ use tracing_subscriber::fmt;
 mod constants;
 mod middlewares;
 mod models;
+mod plugin;
 mod routes;
-mod source;
 mod util;
 mod voice;
 mod ws;
@@ -46,7 +43,7 @@ static ALLOCATOR: Cap<MiMalloc> = Cap::new(MiMalloc, usize::MAX);
 static CONFIG: LazyLock<Config> = LazyLock::new(Config::new);
 static SCHEDULER: LazyLock<Scheduler> = LazyLock::new(Scheduler::default);
 static CLIENTS: LazyLock<DashMap<UserId, ActorRef<WebSocketClient>>> = LazyLock::new(DashMap::new);
-static SOURCES: LazyLock<DashMap<String, FixAsyncTraitSource>> = LazyLock::new(DashMap::new);
+static SOURCES: LazyLock<DashMap<String, Arc<Plugin>>> = LazyLock::new(DashMap::new);
 static TASKS: LazyLock<TasksManager<String>> = LazyLock::new(TasksManager::default);
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 static REQWEST: LazyLock<Client> = LazyLock::new(|| {
@@ -59,6 +56,10 @@ async fn main() {
     unsafe { set_var("RUST_BACKTRACE", "1") };
 
     dotenv().ok();
+
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
     let subscriber = fmt()
         .pretty()
@@ -79,15 +80,7 @@ async fn main() {
     LazyLock::force(&START);
     LazyLock::force(&REQWEST);
 
-    if CONFIG.youtube_config.is_some() {
-        register_source!(Youtube, Some(REQWEST.clone()));
-    }
-    if CONFIG.deezer_config.is_some() {
-        register_source!(Deezer, Some(REQWEST.clone()));
-    }
-    if CONFIG.http_config.is_some() {
-        register_source!(Http, Some(REQWEST.clone()));
-    }
+    plugin::load_plugins().await;
 
     create_tasks().await;
 
@@ -129,7 +122,7 @@ async fn main() {
         .await
         .unwrap();
 
-    tracing::info!("Server is bound to {}", listener.local_addr().unwrap());
+    let local_addr = listener.local_addr().unwrap();
 
     serve(
         listener,
@@ -137,6 +130,8 @@ async fn main() {
     )
     .await
     .ok();
+
+    tracing::info!("Server is bound to {}", local_addr);
 }
 
 async fn create_tasks() {

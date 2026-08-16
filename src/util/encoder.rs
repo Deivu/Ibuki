@@ -1,23 +1,20 @@
 use crate::constants::TRACK_INFO_VERSIONED;
-use crate::models::ApiTrackInfo;
-use crate::util::errors::Base64EncodeError;
+use anyhow::Result;
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use byteorder::BigEndian;
 use byteorder::WriteBytesExt;
+use impero_source::api::ApiTrackInfo;
 use std::io::Cursor;
 use std::io::Write;
 
-fn write_string(wtr: &mut Cursor<Vec<u8>>, message: &str) -> Result<(), Base64EncodeError> {
+fn write_string(wtr: &mut Cursor<Vec<u8>>, message: &str) -> Result<()> {
     wtr.write_u16::<BigEndian>(message.len() as u16)?;
     wtr.write_all(message.as_bytes())?;
     Ok(())
 }
 
-fn optional_write_string(
-    wtr: &mut Cursor<Vec<u8>>,
-    opt: &Option<String>,
-) -> Result<(), Base64EncodeError> {
+fn optional_write_string(wtr: &mut Cursor<Vec<u8>>, opt: &Option<String>) -> Result<()> {
     match opt {
         Some(s) => {
             wtr.write_u8(1)?;
@@ -33,7 +30,7 @@ fn optional_write_string(
 /**
  * Unfortunately this isnt cross compatible with lavalink for some reason
  */
-pub fn encode_base64(track_info: &ApiTrackInfo) -> Result<String, Base64EncodeError> {
+pub fn encode_base64(track_info: &ApiTrackInfo) -> Result<String> {
     let mut wtr = Cursor::new(Vec::new());
 
     let flags = 1;

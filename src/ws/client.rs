@@ -1,10 +1,10 @@
 use crate::CLIENTS;
 use crate::models::{ApiNodeMessage, ApiReady};
-use crate::util::errors::PlayerManagerError;
 use crate::voice::manager::{CreatePlayerOptions, PlayerManager};
 use crate::voice::player::Player;
 use crate::ws::receiver::{ReceiverActor, ReceiverActorArgs};
 use crate::ws::sender::{SendToWebsocket, SenderActor};
+use anyhow::Result;
 use axum::Error;
 use axum::extract::ConnectInfo;
 use axum::extract::ws::{CloseFrame, Message as WsMessage, WebSocket};
@@ -229,10 +229,7 @@ impl WebSocketClient {
     }
 
     #[message]
-    pub async fn create_player(
-        &self,
-        options: CreatePlayerOptions,
-    ) -> Result<(), PlayerManagerError> {
+    pub async fn create_player(&self, options: CreatePlayerOptions) -> Result<()> {
         self.player_manager.create_player(options).await.map(|_| ())
     }
 
