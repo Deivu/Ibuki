@@ -28,11 +28,11 @@ rustls = { version = "0.23.43", features = ["ring"] }
 
 [dependencies.impero-source]
 git = "https://github.com/Deivu/Impero.git"
-rev = "7496e4e03173685308afe7f73fe3ff9f5ec83963"
+rev = "3fd59dbc9f04a23033d6d007c90eb0d1ca74cab9"
 
 [dependencies.impero-filter]
 git = "https://github.com/Deivu/Impero.git"
-rev = "7496e4e03173685308afe7f73fe3ff9f5ec83963"
+rev = "3fd59dbc9f04a23033d6d007c90eb0d1ca74cab9"
 
 [dependencies.mimalloc]
 version = "0.1.48"
@@ -56,11 +56,11 @@ version = "1.53.1"
 features = ["tracing", "macros", "signal", "rt-multi-thread"]
 
 [dependencies.songbird]
-version = "0.6.0"
+version = "=0.6.0"
 features = ["driver", "tungstenite", "rustls"]
 
 [dependencies.symphonia]
-version = "0.6.1"
+version = "=0.5.5"
 features = ["all"]
 
 [dependencies.axum]

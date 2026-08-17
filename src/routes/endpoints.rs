@@ -8,7 +8,6 @@ use crate::CLIENTS;
 use crate::SOURCES;
 use crate::models::{ApiPlayerOptions, ApiSessionBody, ApiSessionInfo};
 use crate::util::converter::numbers::FromU64;
-use crate::util::decoder::decode_base64;
 use crate::voice::manager::CreatePlayerOptions;
 use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetVolume, Stop};
 use crate::ws::client::{
@@ -22,6 +21,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use dashmap::mapref::multiple::RefMulti;
 use impero_source::api::{ApiTrack, ApiTrackResult, ResolveOptions};
+use impero_source::util::decode_track;
 use kameo::actor::ActorRef;
 use serde_json::Value;
 use songbird::id::{GuildId, UserId};
@@ -238,7 +238,7 @@ pub async fn update_session(
 }
 
 pub async fn decode(query: Query<DecodeQueryString>) -> ApiResult<Response> {
-    let info = decode_base64(&query.track).map_err(ApiError::new)?;
+    let info = decode_track(&query.track).map_err(ApiError::new)?;
 
     let track = ApiTrack {
         encoded: query.track.clone(),

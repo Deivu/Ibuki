@@ -3,12 +3,12 @@ use crate::CONFIG;
 use crate::SCHEDULER;
 use crate::SOURCES;
 use crate::models::{ApiPlayer, ApiPlayerState, ApiVoiceData, LavalinkFilters};
-use crate::util::decoder::decode_base64;
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use anyhow::{Error, Result, anyhow};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
 use impero_source::api::ApiTrack;
+use impero_source::util::decode_track;
 use kameo::actor::{ActorRef, WeakActorRef};
 use kameo::error::ActorStopReason;
 use kameo::message::Context;
@@ -262,7 +262,7 @@ impl Player {
 
     #[message]
     pub async fn play(&mut self, encoded: String) -> Result<()> {
-        let info = decode_base64(&encoded)?;
+        let info = decode_track(&encoded)?;
 
         let api_track = ApiTrack {
             encoded,
@@ -275,7 +275,7 @@ impl Player {
             .get(&api_track.info.source_name)
             .ok_or_else(|| anyhow!("Source {} is not loaded", api_track.info.source_name))?;
 
-        let playable = source.fetch(api_track).await?;
+        let playable = source.fetch(api_track.clone()).await?;
         let adapter = AsyncAdapterStream::new(Box::new(playable), 64 * 1024);
 
         let input = Input::Live(
@@ -285,7 +285,7 @@ impl Player {
             None,
         );
 
-        let mut track = Track::new(input);
+        let mut track = Track::new_with_data(input, Arc::new(api_track));
 
         if self.volume as f32 != track.volume {
             track = track.volume(self.volume as f32);
