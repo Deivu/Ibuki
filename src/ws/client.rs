@@ -1,10 +1,10 @@
 use crate::CLIENTS;
 use crate::models::{ApiNodeMessage, ApiReady};
-use crate::util::errors::PlayerManagerError;
 use crate::voice::manager::{CreatePlayerOptions, PlayerManager};
 use crate::voice::player::Player;
 use crate::ws::receiver::{ReceiverActor, ReceiverActorArgs};
 use crate::ws::sender::{SendToWebsocket, SenderActor};
+use anyhow::Result;
 use axum::Error;
 use axum::extract::ConnectInfo;
 use axum::extract::ws::{CloseFrame, Message as WsMessage, WebSocket};
@@ -159,6 +159,7 @@ impl WebSocketClient {
 
         let receiver_actor = ReceiverActor::spawn(ReceiverActorArgs {
             stream,
+            client_ref: ctx.actor_ref().clone(),
             dropped: self.dropped.clone(),
             user_id: self.user_id.clone(),
             players: self.player_manager.players.clone(),
@@ -175,6 +176,7 @@ impl WebSocketClient {
             session_id: self.session_id.to_string(),
         };
 
+        // Normally, this should never happen, but we ignore it if it does happen and log it
         let Ok(serialized) = serde_json::to_string(&ApiNodeMessage::Ready(Box::new(event))) else {
             tracing::warn!("Failed to encode ready op, this should not happen usually");
             return resumed;
@@ -227,25 +229,13 @@ impl WebSocketClient {
     }
 
     #[message]
-    pub async fn create_player(
-        &self,
-        options: CreatePlayerOptions,
-    ) -> Result<(), PlayerManagerError> {
+    pub async fn create_player(&self, options: CreatePlayerOptions) -> Result<()> {
         self.player_manager.create_player(options).await.map(|_| ())
     }
 
     #[message]
     pub async fn get_player(&self, guild_id: GuildId) -> Option<ActorRef<Player>> {
         self.player_manager.get_player(&guild_id).map(|p| p.clone())
-    }
-
-    #[message]
-    pub async fn get_all_players(&self) -> Vec<(GuildId, ActorRef<Player>)> {
-        self.player_manager
-            .players
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-            .collect()
     }
 
     #[message]
@@ -268,7 +258,7 @@ impl WebSocketClient {
     }
 
     fn terminate(&mut self) {
-        self.dropped.store(true, Ordering::Release);
+        self.dropped.store(false, Ordering::Release);
         self.player_manager.destroy_all();
     }
 }

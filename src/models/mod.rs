@@ -1,3 +1,4 @@
+use impero_source::api::ApiTrack;
 use kameo::Reply;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -22,68 +23,12 @@ where
     se.serialize_str(num.to_string().as_str())
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Severity {
-    Common,
-    Suspicious,
-    Fault,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LoadType {
-    Track,
-    Playlist,
-    Search,
-    Empty,
-    Error,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[serde(tag = "loadType", content = "data")]
-pub enum ApiTrackResult {
-    Track(ApiTrack),
-    Playlist(ApiTrackPlaylist),
-    Search(Vec<ApiTrack>),
-    Error(ApiTrackLoadException),
-    Empty(Option<Empty>),
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Empty;
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiPlaylistInfo {
-    pub name: String,
-    pub selected_track: i32,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiTrackPlaylist {
-    pub info: ApiPlaylistInfo,
-    pub plugin_info: Empty,
-    pub tracks: Vec<ApiTrack>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ApiTrackLoadException {
-    pub message: String,
-    pub severity: Severity,
-    pub cause: String,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiVoiceData {
-    #[serde(default)]
     pub token: String,
-    #[serde(default)]
     pub endpoint: String,
-    #[serde(default)]
+    pub channel_id: String,
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected: Option<bool>,
@@ -110,32 +55,6 @@ pub struct ApiPlayer {
     pub state: ApiPlayerState,
     pub voice: ApiVoiceData,
     pub filters: LavalinkFilters,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiTrackInfo {
-    pub identifier: String,
-    pub is_seekable: bool,
-    pub author: String,
-    pub length: u64,
-    pub is_stream: bool,
-    pub position: u64,
-    pub title: String,
-    pub uri: Option<String>,
-    pub artwork_url: Option<String>,
-    pub isrc: Option<String>,
-    pub source_name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiTrack {
-    pub encoded: String,
-    pub info: ApiTrackInfo,
-    pub plugin_info: Empty,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_data: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -209,8 +128,6 @@ pub struct UpdateApiPlayerTrack {
     pub encoded: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_data: Option<Value>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
@@ -230,8 +147,6 @@ pub struct ApiPlayerOptions {
     pub paused: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<ApiVoiceData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filters: Option<LavalinkFilters>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
@@ -325,44 +240,6 @@ pub struct LavalinkFilters {
     pub channel_mix: Option<ChannelMix>,
     pub low_pass: Option<LowPass>,
     pub plugin_filters: Option<Value>,
-}
-
-impl LavalinkFilters {
-    pub fn merge(&mut self, other: LavalinkFilters) {
-        if other.volume.is_some() {
-            self.volume = other.volume;
-        }
-        if other.equalizer.is_some() {
-            self.equalizer = other.equalizer;
-        }
-        if other.karaoke.is_some() {
-            self.karaoke = other.karaoke;
-        }
-        if other.timescale.is_some() {
-            self.timescale = other.timescale;
-        }
-        if other.tremolo.is_some() {
-            self.tremolo = other.tremolo;
-        }
-        if other.vibrato.is_some() {
-            self.vibrato = other.vibrato;
-        }
-        if other.rotation.is_some() {
-            self.rotation = other.rotation;
-        }
-        if other.distortion.is_some() {
-            self.distortion = other.distortion;
-        }
-        if other.channel_mix.is_some() {
-            self.channel_mix = other.channel_mix;
-        }
-        if other.low_pass.is_some() {
-            self.low_pass = other.low_pass;
-        }
-        if other.plugin_filters.is_some() {
-            self.plugin_filters = other.plugin_filters;
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

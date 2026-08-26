@@ -1,20 +1,24 @@
 use crate::CONFIG;
-use crate::util::errors::EndpointError;
-use axum::body::Body;
 use axum::extract::Request;
-use axum::http::Response;
+use axum::http::StatusCode;
 use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 
-pub async fn authenticate(request: Request, next: Next) -> Result<Response<Body>, EndpointError> {
-    let authorization = request
+#[tracing::instrument]
+pub async fn authenticate(request: Request, next: Next) -> Response {
+    let Some(auth) = request
         .headers()
         .get("Authorization")
-        .ok_or(EndpointError::MissingOption("Authorization"))?
-        .to_str()?;
+        .and_then(|v| v.to_str().ok())
+    else {
+        tracing::warn!("Missing auth header");
 
-    if authorization != CONFIG.authorization {
-        return Err(EndpointError::Unauthorized);
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+
+    if auth != CONFIG.authorization {
+        return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    Ok(next.run(request).await)
+    next.run(request).await
 }

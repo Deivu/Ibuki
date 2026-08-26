@@ -1,7 +1,7 @@
 use super::player::{Connect, Player, PlayerOptions};
 use crate::models::ApiVoiceData;
-use crate::util::errors::PlayerManagerError;
 use crate::ws::client::WebSocketClient;
+use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
 use kameo::actor::{ActorRef, Spawn, WeakActorRef};
@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 pub struct CreatePlayerOptions {
     pub guild_id: GuildId,
-    pub server_update: Option<ApiVoiceData>,
+    pub server_update: ApiVoiceData,
     pub config: Option<Config>,
 }
 
@@ -35,41 +35,37 @@ impl PlayerManager {
         self.players.get(guild_id)
     }
 
-    pub async fn create_player(
-        &self,
-        options: CreatePlayerOptions,
-    ) -> Result<(), PlayerManagerError> {
+    pub async fn create_player(&self, options: CreatePlayerOptions) -> Result<()> {
         if let Some(player) = self.get_player(&options.guild_id) {
-            player.wait_for_startup_result().await?;
-            if let Some(server_update) = options.server_update {
-                player
-                    .ask(Connect {
-                        server_update,
-                        config: options.config,
-                    })
-                    .await?;
-            }
+            player
+                .wait_for_startup_result()
+                .await
+                .map_err(|e| anyhow!(format!("{:?}", e)))?;
+
+            player
+                .ask(Connect {
+                    server_update: options.server_update,
+                    config: options.config,
+                })
+                .await?;
             return Ok(());
         }
-        let guild_id = options.guild_id.clone();
-        let player_options = PlayerOptions {
+
+        let options = PlayerOptions {
             websocket: self.websocket.clone(),
             config: options.config,
             user_id: self.user_id,
-            guild_id: guild_id.clone(),
+            guild_id: options.guild_id.clone(),
             server_update: options.server_update,
             players: self.players.clone(),
         };
 
-        let player_ref = Player::spawn(player_options);
-        self.players.insert(guild_id.clone(), player_ref.clone());
-        match player_ref.wait_for_startup_result().await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                self.players.remove(&guild_id);
-                Err(e.into())
-            }
-        }
+        Player::spawn(options)
+            .wait_for_startup_result()
+            .await
+            .map_err(|e| anyhow!(format!("{:?}", e)))?;
+
+        Ok(())
     }
 
     pub async fn destroy_player(&self, guild_id: &GuildId) {

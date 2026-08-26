@@ -3,20 +3,13 @@ use super::EncodeQueryString;
 use super::PlayerMethodsPath;
 use super::PlayerUpdateQuery;
 use super::SessionMethodsPath;
+use super::{ApiError, ApiResult};
 use crate::CLIENTS;
 use crate::SOURCES;
-use crate::models::{
-    ApiPlayerOptions, ApiSessionBody, ApiSessionInfo, ApiTrack, ApiTrackResult, Empty,
-};
-use crate::util::api_stats;
+use crate::models::{ApiPlayerOptions, ApiSessionBody, ApiSessionInfo};
 use crate::util::converter::numbers::FromU64;
-use crate::util::decoder::{decode_base64, decode_track};
-use crate::util::errors::EndpointError;
 use crate::voice::manager::CreatePlayerOptions;
-use crate::voice::player::{
-    GetApiPlayerInfo, GetTrackHandle, IsActive, Pause, Play, Seek, SetEndTimeTask, SetFilters,
-    SetVolume, Stop,
-};
+use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetVolume, Stop};
 use crate::ws::client::{
     CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
 };
@@ -24,14 +17,16 @@ use axum::Json;
 use axum::body::Body;
 use axum::extract::Path;
 use axum::extract::Query;
-use axum::response::Response;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use dashmap::mapref::multiple::RefMulti;
+use impero_source::api::{ApiTrack, ApiTrackResult, ResolveOptions};
+use impero_source::util::decode_track;
 use kameo::actor::ActorRef;
 use serde_json::Value;
 use songbird::id::{GuildId, UserId};
-use std::time::Duration;
-use tokio::spawn;
-use tokio::time::sleep;
+
+// todo: clean this up
 
 async fn get_client(
     session_id: String,
@@ -52,21 +47,32 @@ pub async fn get_player(
         session_id,
         guild_id,
     }): Path<PlayerMethodsPath>,
-) -> Result<Response<Body>, EndpointError> {
-    let client = get_client(session_id)
-        .await
-        .ok_or(EndpointError::NoWebsocketClientFound)?;
+) -> ApiResult<Response> {
+    let Some(client) = get_client(session_id.clone()).await else {
+        tracing::debug!(
+            "Failed to find websocket client for session id: {} and guild id: {}",
+            session_id,
+            guild_id
+        );
 
-    let player = client
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
+
+    let Some(player) = client
         .ask(GetPlayer {
             guild_id: GuildId::from_u64(guild_id),
         })
-        .await?
-        .ok_or(EndpointError::NoPlayerFound)?;
+        .await
+        .map_err(ApiError::new)?
+    else {
+        tracing::debug!("No player found for {}/{}", session_id, guild_id);
 
-    let data = player.ask(GetApiPlayerInfo).await?;
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
 
-    let string = serde_json::to_string_pretty(&data)?;
+    let data = player.ask(GetApiPlayerInfo).await.map_err(ApiError::new)?;
+
+    let string = serde_json::to_string_pretty(&data).map_err(ApiError::new)?;
 
     Ok(Response::new(Body::from(string)))
 }
@@ -78,114 +84,81 @@ pub async fn update_player(
         guild_id,
     }): Path<PlayerMethodsPath>,
     Json(update_player): Json<ApiPlayerOptions>,
-) -> Result<Response<Body>, EndpointError> {
-    let client = get_client(session_id)
-        .await
-        .ok_or(EndpointError::NoWebsocketClientFound)?;
+) -> ApiResult<Response> {
+    let Some(client) = get_client(session_id.clone()).await else {
+        tracing::debug!(
+            "Failed to find websocket client for session id: {} and guild id: {}",
+            session_id,
+            guild_id
+        );
+
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
 
     let option_player = client
         .ask(GetPlayer {
             guild_id: GuildId::from_u64(guild_id),
         })
-        .await?;
+        .await
+        .map_err(ApiError::new)?;
 
-    if option_player.is_none() {
-        let options = CreatePlayerOptions {
-            guild_id: GuildId::from_u64(guild_id),
-            server_update: update_player.voice.clone(),
-            config: None,
-        };
+    if option_player.is_none() && update_player.voice.is_none() {
+        tracing::debug!("No player found for {}/{}", session_id, guild_id);
 
-        client.ask(CreatePlayer { options }).await?;
-    } else if let Some(server_update) = update_player.voice {
-        let options = CreatePlayerOptions {
-            guild_id: GuildId::from_u64(guild_id),
-            server_update: Some(server_update),
-            config: None,
-        };
-
-        client.ask(CreatePlayer { options }).await?;
+        return Ok(StatusCode::NOT_FOUND.into_response());
     }
 
-    let player = client
+    if let Some(server_update) = update_player.voice {
+        let options = CreatePlayerOptions {
+            guild_id: GuildId::from_u64(guild_id),
+            server_update,
+            config: None,
+        };
+
+        client
+            .ask(CreatePlayer { options })
+            .await
+            .map_err(ApiError::new)?;
+    }
+
+    let Some(player) = client
         .ask(GetPlayer {
             guild_id: GuildId::from_u64(guild_id),
         })
-        .await?
-        .ok_or(EndpointError::NoPlayerFound)?;
+        .await
+        .map_err(ApiError::new)?
+    else {
+        tracing::debug!("No player found for {}/{}", session_id, guild_id);
 
-    let mut stopped = false;
-    let no_replace = query.no_replace.unwrap_or(false);
-    let is_active = player.ask(IsActive).await?;
-
-    let encoded_to_play: Option<String> = if let Some(encoded) = update_player
-        .track
-        .as_ref()
-        .map(|t| t.encoded.clone())
-        .and_then(|v| {
-            if let Value::String(s) = v {
-                Some(s)
-            } else {
-                None
-            }
-        }) {
-        Some(encoded)
-    } else if let Some(identifier) = update_player
-        .track
-        .as_ref()
-        .and_then(|t| t.identifier.clone())
-        .or(update_player.identifier.clone())
-    {
-        let mut resolved: Option<String> = None;
-        for source in SOURCES.iter() {
-            let Some(data) = source.to_inner_ref().parse_query(&identifier) else {
-                continue;
-            };
-            let result = source
-                .to_inner_ref()
-                .resolve(data)
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or(ApiTrackResult::Empty(None));
-
-            if let ApiTrackResult::Track(api_track) = result {
-                resolved = Some(api_track.encoded);
-                break;
-            }
-        }
-        resolved
-    } else if let Some(track) = update_player.track.as_ref() {
-        if let Value::Null = track.encoded {
-            player.ask(Stop).await?;
-            stopped = true;
-        }
-        None
-    } else {
-        None
+        return Ok(StatusCode::NOT_FOUND.into_response());
     };
 
-    if let Some(encoded) = encoded_to_play {
-        if !is_active || !no_replace {
-            player
-                .ask(Play {
-                    encoded,
-                    user_data: update_player
-                        .track
-                        .as_ref()
-                        .and_then(|t| t.user_data.clone()),
-                })
-                .await?;
+    let mut stopped = false;
+
+    let is_active = player.ask(IsActive).await.map_err(ApiError::new)?;
+    let should_update_track = !is_active || !query.no_replace.unwrap_or_default();
+
+    if let Some(track) = update_player.track
+        && should_update_track
+    {
+        match track.encoded {
+            Value::String(encoded) => {
+                player.ask(Play { encoded }).await.map_err(ApiError::new)?;
+            }
+            _ => {
+                player.ask(Stop).await.map_err(ApiError::new)?;
+                stopped = true;
+            }
         }
     }
 
     if !stopped {
         if let Some(pause) = update_player.paused {
-            player.ask(Pause { pause }).await?;
+            player.ask(Pause { pause }).await.map_err(ApiError::new)?;
         }
 
         if let Some(position) = update_player.position {
-            player.ask(Seek { position }).await?;
+            player.ask(Seek { position }).await.map_err(ApiError::new)?;
         }
 
         if let Some(volume) = update_player.volume {
@@ -193,52 +166,14 @@ pub async fn update_player(
                 .ask(SetVolume {
                     volume: volume as f32,
                 })
-                .await?;
-        }
-
-        if let Some(filters) = update_player.filters {
-            player.ask(SetFilters { filters }).await?;
+                .await
+                .map_err(ApiError::new)?;
         }
     }
 
-    let track_uuid = player
-        .ask(GetTrackHandle)
-        .await
-        .ok()
-        .flatten()
-        .map(|h| h.uuid());
-    if let Some(end_ms) = update_player.end_time {
-        let current_position = player
-            .ask(GetApiPlayerInfo)
-            .await
-            .map(|p| p.state.position)
-            .unwrap_or(0);
-        let remaining_ms = (end_ms as u64).saturating_sub(current_position as u64);
+    let data = player.ask(GetApiPlayerInfo).await.map_err(ApiError::new)?;
 
-        if let Some(uuid) = track_uuid {
-            if remaining_ms == 0 {
-                player.ask(Stop).await.ok();
-                let _ = player.ask(SetEndTimeTask { task: None }).await;
-            } else {
-                let player_ref = player.clone();
-                let task = spawn(async move {
-                    sleep(Duration::from_millis(remaining_ms)).await;
-                    if let Ok(Some(current_handle)) = player_ref.ask(GetTrackHandle).await {
-                        if current_handle.uuid() == uuid {
-                            player_ref.ask(Stop).await.ok();
-                        }
-                    }
-                });
-                let _ = player.ask(SetEndTimeTask { task: Some(task) }).await;
-            }
-        }
-    } else {
-        let _ = player.ask(SetEndTimeTask { task: None }).await;
-    }
-
-    let data = player.ask(GetApiPlayerInfo).await?;
-
-    let string = serde_json::to_string_pretty(&data)?;
+    let string = serde_json::to_string_pretty(&data).map_err(ApiError::new)?;
 
     Ok(Response::new(Body::from(string)))
 }
@@ -249,254 +184,91 @@ pub async fn destroy_player(
         session_id,
         guild_id,
     }): Path<PlayerMethodsPath>,
-) -> Result<Response<Body>, EndpointError> {
-    let client = get_client(session_id)
-        .await
-        .ok_or(EndpointError::NoWebsocketClientFound)?;
+) -> ApiResult<Response> {
+    let Some(client) = get_client(session_id.clone()).await else {
+        tracing::debug!(
+            "Failed to find websocket client for session id: {} and guild id: {}",
+            session_id,
+            guild_id
+        );
+
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
 
     client
         .ask(DestroyPlayer {
             guild_id: GuildId::from_u64(guild_id),
         })
-        .await?;
+        .await
+        .map_err(ApiError::new)?;
 
-    Ok(Response::new(Body::from(())))
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 #[tracing::instrument]
 pub async fn update_session(
     Path(SessionMethodsPath { session_id }): Path<SessionMethodsPath>,
     Json(update_session): Json<ApiSessionBody>,
-) -> Result<Response<Body>, EndpointError> {
-    let client = get_client(session_id)
-        .await
-        .ok_or(EndpointError::NoWebsocketClientFound)?;
+) -> ApiResult<Response> {
+    let Some(client) = get_client(session_id.clone()).await else {
+        tracing::debug!(
+            "Failed to find websocket client for session id: {}",
+            session_id,
+        );
+
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
 
     let data = client
         .ask(UpdateWebsocket {
             resuming: update_session.resuming,
             timeout: update_session.timeout,
         })
-        .await?;
+        .await
+        .map_err(ApiError::new)?;
 
     let info = ApiSessionInfo {
         resuming_key: data.session_id,
         timeout: data.timeout as u16,
     };
 
-    let string = serde_json::to_string_pretty(&info)?;
+    let string = serde_json::to_string_pretty(&info).map_err(ApiError::new)?;
 
     Ok(Response::new(Body::from(string)))
 }
 
-#[tracing::instrument]
-pub async fn get_session(
-    Path(SessionMethodsPath { session_id }): Path<SessionMethodsPath>,
-) -> Result<Response<Body>, EndpointError> {
-    let client = get_client(session_id.clone())
-        .await
-        .ok_or(EndpointError::NoWebsocketClientFound)?;
-
-    let data = client.ask(GetWebsocketInfo).await?;
-
-    let info = ApiSessionInfo {
-        resuming_key: session_id,
-        timeout: data.timeout as u16,
-    };
-
-    let string = serde_json::to_string_pretty(&info)?;
-
-    Ok(Response::new(Body::from(string)))
-}
-
-pub async fn decode(query: Query<DecodeQueryString>) -> Result<Response<Body>, EndpointError> {
-    let track = decode_track(&query.track).or_else(|_| decode_base64(&query.track))?;
+pub async fn decode(query: Query<DecodeQueryString>) -> ApiResult<Response> {
+    let info = decode_track(&query.track).map_err(ApiError::new)?;
 
     let track = ApiTrack {
         encoded: query.track.clone(),
-        info: track,
-        plugin_info: Empty,
+        info,
+        plugin_info: None,
         user_data: None,
     };
 
-    let string = serde_json::to_string_pretty(&track)?;
+    let string = serde_json::to_string_pretty(&track).map_err(ApiError::new)?;
 
     Ok(Response::new(Body::from(string)))
-}
-
-#[derive(serde::Deserialize)]
-pub struct DecodeTracksBody {
-    pub tracks: Vec<String>,
-}
-
-pub async fn decode_tracks(
-    Json(body): Json<DecodeTracksBody>,
-) -> Result<Response<Body>, EndpointError> {
-    if body.tracks.is_empty() {
-        return Err(EndpointError::FailedMessage(
-            "No tracks to decode provided".to_string(),
-        ));
-    }
-
-    let decoded: Vec<ApiTrack> = body
-        .tracks
-        .into_iter()
-        .map(|encoded| {
-            let info = decode_track(&encoded)
-                .or_else(|_| decode_base64(&encoded))
-                .map_err(|e| {
-                    EndpointError::FailedMessage(format!(
-                        "Failed to decode track {}: {}",
-                        encoded, e
-                    ))
-                })?;
-            Ok(ApiTrack {
-                encoded,
-                info,
-                plugin_info: Empty,
-                user_data: None,
-            })
-        })
-        .collect::<Result<Vec<ApiTrack>, EndpointError>>()?;
-
-    let string = serde_json::to_string_pretty(&decoded)?;
-    Response::builder()
-        .header("Content-Type", "application/json")
-        .body(Body::from(string))
-        .map_err(|e| EndpointError::FailedMessage(e.to_string()))
 }
 
 #[tracing::instrument]
-pub async fn encode(query: Query<EncodeQueryString>) -> Result<Response<Body>, EndpointError> {
-    let mut track = ApiTrackResult::Empty(None);
+pub async fn encode(query: Query<EncodeQueryString>) -> ApiResult<Response> {
+    let mut track = ApiTrackResult::Empty(Value::Array(Vec::new()));
 
     for source in SOURCES.iter() {
-        let Some(data) = source.to_inner_ref().parse_query(&query.identifier) else {
-            continue;
-        };
+        let plugin = source.value();
 
-        tracing::info!("Trying source: {}", source.to_inner_ref().get_name());
-
-        track = source
-            .to_inner_ref()
-            .resolve(data)
-            .await?
-            .unwrap_or(ApiTrackResult::Empty(None));
-
-        if !matches!(track, ApiTrackResult::Empty(_)) {
-            tracing::info!(
-                "Track found by source: {}",
-                source.to_inner_ref().get_name()
-            );
-            break;
-        }
+        track = plugin
+            .resolve(ResolveOptions {
+                identifier: query.identifier.clone(),
+                ctx: None,
+            })
+            .await
+            .map_err(ApiError::new)?;
     }
 
-    let string = serde_json::to_string_pretty(&track)?;
+    let string = serde_json::to_string_pretty(&track).map_err(ApiError::new)?;
 
     Ok(Response::new(Body::from(string)))
-}
-
-pub async fn node_info() -> Result<Response<Body>, EndpointError> {
-    let sources: Vec<String> = SOURCES.iter().map(|entry| entry.key().clone()).collect();
-
-    let info = serde_json::json!({
-        "version": {
-            "semver": "4.0.0",
-            "major": 4,
-            "minor": 0,
-            "patch": 0,
-            "preRelease": null,
-            "build": null
-        },
-        "buildTime": 0,
-        "git": {
-            "branch": "main",
-            "commit": "unknown",
-            "commitTime": 0
-        },
-        "sourceManagers": sources,
-        "filters": [
-            "volume",
-            "equalizer",
-            "timescale",
-            "tremolo",
-            "vibrato",
-            "rotation",
-            "distortion",
-            "channelMix",
-            "lowPass",
-            "karaoke"
-        ],
-    });
-
-    let string = serde_json::to_string_pretty(&info)?;
-
-    Ok(Response::builder()
-        .header("Content-Type", "application/json")
-        .body(Body::from(string))
-        .unwrap())
-}
-
-pub async fn version() -> Response<Body> {
-    Response::builder()
-        .header("Content-Type", "text/plain")
-        .body(Body::from("4.0.0"))
-        .unwrap()
-}
-
-pub async fn get_stats() -> Result<Response<Body>, EndpointError> {
-    let stats = api_stats::get_stats().await;
-
-    let string = serde_json::to_string_pretty(&stats)?;
-    Response::builder()
-        .header("Content-Type", "application/json")
-        .body(Body::from(string))
-        .map_err(|e| EndpointError::FailedMessage(e.to_string()))
-}
-
-pub async fn get_all_players(
-    Path(SessionMethodsPath { session_id }): Path<SessionMethodsPath>,
-) -> Result<Response<Body>, EndpointError> {
-    let client = get_client(session_id)
-        .await
-        .ok_or(EndpointError::NoWebsocketClientFound)?;
-
-    let players = client.ask(crate::ws::client::GetAllPlayers).await?;
-
-    let mut player_list = Vec::new();
-    for (_guild_id, player_ref) in players {
-        match player_ref.ask(GetApiPlayerInfo).await {
-            Ok(data) => player_list.push(data),
-            Err(e) => tracing::error!(
-                "Failed to GetApiPlayerInfo for guild {}: {:?}",
-                _guild_id,
-                e
-            ),
-        }
-    }
-
-    let string = serde_json::to_string_pretty(&player_list)?;
-    Response::builder()
-        .header("Content-Type", "application/json")
-        .body(Body::from(string))
-        .map_err(|e| EndpointError::FailedMessage(e.to_string()))
-}
-
-pub async fn get_sessions() -> Result<Response<Body>, EndpointError> {
-    let mut sessions = Vec::new();
-    for client_ref in CLIENTS.iter() {
-        if let Ok(data) = client_ref.ask(GetWebsocketInfo).await {
-            sessions.push(serde_json::json!({
-                "resuming": data.resume,
-                "timeout": data.timeout,
-                "sessionId": data.session_id,
-            }));
-        }
-    }
-    let string = serde_json::to_string_pretty(&sessions)?;
-    Response::builder()
-        .header("Content-Type", "application/json")
-        .body(Body::from(string))
-        .map_err(|e| EndpointError::FailedMessage(e.to_string()))
 }

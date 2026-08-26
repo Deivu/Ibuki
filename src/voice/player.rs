@@ -1,20 +1,18 @@
 use super::events::PlayerEvent;
 use crate::CONFIG;
 use crate::SCHEDULER;
-use crate::filters::processor::FilterChain;
-use crate::filters::source::{FilteredCompose, FilteredSource};
-use crate::models::{ApiPlayer, ApiPlayerState, ApiTrack, ApiVoiceData, Empty, LavalinkFilters};
-use crate::util::decoder::{decode_base64, decode_track};
-use crate::util::errors::PlayerError;
-use crate::util::frame_counter::FrameCounter;
+use crate::SOURCES;
+use crate::models::{ApiPlayer, ApiPlayerState, ApiVoiceData, LavalinkFilters};
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
+use anyhow::{Error, Result, anyhow};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
+use impero_source::api::ApiTrack;
+use impero_source::util::decode_track;
 use kameo::actor::{ActorRef, WeakActorRef};
 use kameo::error::ActorStopReason;
 use kameo::message::Context;
 use kameo::{Actor, messages};
-use serde_json::Value;
 use songbird::Config as SongbirdConfig;
 use songbird::ConnectionInfo;
 use songbird::CoreEvent;
@@ -23,9 +21,15 @@ use songbird::Event;
 use songbird::TrackEvent;
 use songbird::driver::Bitrate;
 use songbird::id::{ChannelId, GuildId, UserId};
-use songbird::input::{AudioStream, File, Input, LiveInput};
-use songbird::tracks::{Track, TrackHandle};
-use std::sync::{Arc, Mutex};
+use songbird::input::AsyncAdapterStream;
+use songbird::input::AudioStream;
+use songbird::input::Input;
+use songbird::input::LiveInput;
+use songbird::tracks::Track;
+use songbird::tracks::TrackHandle;
+use std::num::NonZeroU64;
+use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -47,7 +51,6 @@ struct PlayerInternal {
     pub websocket: WeakActorRef<WebSocketClient>,
     pub driver: Option<Driver>,
     pub handle: Option<TrackHandle>,
-    pub end_time_task: Option<tokio::task::JoinHandle<()>>,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
 }
 
@@ -56,9 +59,10 @@ pub struct PlayerOptions {
     pub config: Option<SongbirdConfig>,
     pub user_id: UserId,
     pub guild_id: GuildId,
-    pub server_update: Option<ApiVoiceData>,
+    pub server_update: ApiVoiceData,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
 }
+
 pub struct Player {
     pub guild_id: GuildId,
     pub track: Option<ApiTrack>,
@@ -67,17 +71,32 @@ pub struct Player {
     pub state: ApiPlayerState,
     pub voice: ApiVoiceData,
     pub filters: LavalinkFilters,
-    pub filter_chain: Arc<Mutex<FilterChain>>,
-    pub frame_counter: Arc<FrameCounter>,
     internal: PlayerInternal,
+}
+
+// note: kameo requires clone for their error trait -_-
+#[derive(Clone, Debug)]
+pub struct AnnoyingError {
+    pub message: String,
+    pub backtrace: Option<String>,
+}
+
+impl From<Error> for AnnoyingError {
+    fn from(error: Error) -> Self {
+        Self {
+            message: error.to_string(),
+            backtrace: None,
+        }
+    }
 }
 
 impl Actor for Player {
     type Args = PlayerOptions;
-    type Error = PlayerError;
+    type Error = AnnoyingError;
 
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let player = Player::new(args, actor_ref.downgrade()).await?;
+        player.internal.players.insert(player.guild_id, actor_ref);
         tracing::debug!("New Player Task spawned for GuildId: [{}]", player.guild_id);
         Ok(player)
     }
@@ -87,10 +106,6 @@ impl Actor for Player {
         _: WeakActorRef<Self>,
         reason: ActorStopReason,
     ) -> Result<(), Self::Error> {
-        if let Some(task) = self.internal.end_time_task.take() {
-            task.abort();
-        }
-
         if let Some(driver) = self.internal.driver.take().as_mut() {
             driver.stop();
             driver.leave();
@@ -123,20 +138,15 @@ impl From<&Player> for ApiPlayer {
 
 #[messages]
 impl Player {
-    pub async fn new(
-        options: PlayerOptions,
-        actor_ref: WeakActorRef<Player>,
-    ) -> Result<Self, PlayerError> {
+    pub async fn new(options: PlayerOptions, actor_ref: WeakActorRef<Player>) -> Result<Self> {
         let mut player = Player {
             guild_id: options.guild_id,
             track: None,
-            volume: 80,
+            volume: 1,
             paused: false,
             state: Default::default(),
-            voice: options.server_update.clone().unwrap_or_default(),
+            voice: options.server_update.clone(),
             filters: Default::default(),
-            filter_chain: Arc::new(Mutex::new(FilterChain::new(48000))),
-            frame_counter: Arc::new(FrameCounter::new()),
             internal: PlayerInternal {
                 actor_ref,
                 user_id: options.user_id,
@@ -144,14 +154,13 @@ impl Player {
                 websocket: options.websocket,
                 driver: Default::default(),
                 handle: None,
-                end_time_task: None,
                 players: options.players,
             },
         };
 
-        if let Some(server_update) = options.server_update {
-            player.connect(server_update, options.config).await?;
-        }
+        player
+            .connect(options.server_update, options.config)
+            .await?;
 
         Ok(player)
     }
@@ -162,21 +171,8 @@ impl Player {
     }
 
     #[message]
-    pub fn get_frame_counter(&self) -> Arc<FrameCounter> {
-        self.frame_counter.clone()
-    }
-
-    #[message]
     pub fn get_api_player_info(&self) -> ApiPlayer {
         self.into()
-    }
-
-    #[message]
-    pub fn set_end_time_task(&mut self, task: Option<tokio::task::JoinHandle<()>>) {
-        if let Some(old_task) = self.internal.end_time_task.take() {
-            old_task.abort();
-        }
-        self.internal.end_time_task = task;
     }
 
     #[message]
@@ -194,9 +190,11 @@ impl Player {
         &mut self,
         server_update: ApiVoiceData,
         config: Option<SongbirdConfig>,
-    ) -> Result<(), PlayerError> {
+    ) -> Result<()> {
+        let channel_id = NonZeroU64::from_str(&server_update.channel_id)?;
+
         let connection = ConnectionInfo {
-            channel_id: Some(ChannelId::from(std::num::NonZeroU64::new(1).unwrap())),
+            channel_id: ChannelId::from(channel_id),
             endpoint: server_update.endpoint.to_owned(),
             guild_id: self.guild_id,
             session_id: server_update.session_id.to_owned(),
@@ -205,10 +203,7 @@ impl Player {
         };
 
         let Some(driver) = self.internal.driver.as_mut() else {
-            let config = config
-                .unwrap_or_default()
-                .scheduler(SCHEDULER.to_owned())
-                .use_softclip(false);
+            let config = config.unwrap_or_default().scheduler(SCHEDULER.to_owned());
 
             let mut driver = Driver::new(config.clone());
 
@@ -247,73 +242,11 @@ impl Player {
         self.state.connected = true;
         self.voice = server_update.clone();
 
-        if let Some(api_track) = self.track.clone() {
-            tracing::debug!(
-                "Playing queued track after connection for GuildId: [{}]",
-                self.guild_id
-            );
-
-            let track_data = Arc::new(api_track.clone());
-            let input = api_track.make_playable().await?;
-            let input = Self::apply_filters(&self.filter_chain, self.guild_id, input);
-
-            let volume_f32 = self.volume as f32 / 100.0;
-            let track = Track::new_with_data(input, track_data).volume(volume_f32);
-
-            let track_handle = driver.play_only(track);
-
-            track_handle.add_event(
-                Event::Track(TrackEvent::Play),
-                PlayerEvent::new(
-                    Event::Track(TrackEvent::Play),
-                    self.guild_id,
-                    self.internal.user_id,
-                    self.internal.actor_ref.clone(),
-                ),
-            )?;
-
-            track_handle.add_event(
-                Event::Track(TrackEvent::Pause),
-                PlayerEvent::new(
-                    Event::Track(TrackEvent::Pause),
-                    self.guild_id,
-                    self.internal.user_id,
-                    self.internal.actor_ref.clone(),
-                ),
-            )?;
-
-            track_handle.add_event(
-                Event::Track(TrackEvent::Playable),
-                PlayerEvent::new(
-                    Event::Track(TrackEvent::Playable),
-                    self.guild_id,
-                    self.internal.user_id,
-                    self.internal.actor_ref.clone(),
-                ),
-            )?;
-
-            track_handle.add_event(
-                Event::Track(TrackEvent::End),
-                PlayerEvent::new(
-                    Event::Track(TrackEvent::End),
-                    self.guild_id,
-                    self.internal.user_id,
-                    self.internal.actor_ref.clone(),
-                ),
-            )?;
-
-            let _ = self.internal.handle.insert(track_handle);
-        }
-
         Ok(())
     }
 
     #[message]
     pub async fn disconnect(&mut self) {
-        if let Some(task) = self.internal.end_time_task.take() {
-            task.abort();
-        }
-
         if let Some(driver) = self.internal.driver.take().as_mut() {
             driver.stop();
             driver.leave();
@@ -328,43 +261,45 @@ impl Player {
     }
 
     #[message]
-    pub async fn play(
-        &mut self,
-        encoded: String,
-        user_data: Option<Value>,
-    ) -> Result<(), PlayerError> {
-        let info = decode_track(&encoded).or_else(|_| decode_base64(&encoded))?;
+    pub async fn play(&mut self, encoded: String) -> Result<()> {
+        let info = decode_track(&encoded)?;
 
         let api_track = ApiTrack {
             encoded,
             info,
-            plugin_info: Empty,
-            user_data,
-        };
-        self.track = Some(api_track.clone());
-
-        // If no driver yet (disconnected player), just queue the track
-        let Some(driver) = self.internal.driver.as_mut() else {
-            tracing::debug!(
-                "No driver yet, track queued for GuildId: [{}]",
-                self.guild_id
-            );
-            return Ok(());
+            plugin_info: None,
+            user_data: None,
         };
 
-        // We have a driver, play the track
-        let track_data = Arc::new(api_track.clone());
-        let input = api_track.make_playable().await?;
-        let input = Self::apply_filters(&self.filter_chain, self.guild_id, input);
+        let source = SOURCES
+            .get(&api_track.info.source_name)
+            .ok_or_else(|| anyhow!("Source {} is not loaded", api_track.info.source_name))?;
 
-        let volume_f32 = self.volume as f32 / 100.0;
-        let track = Track::new_with_data(input, track_data).volume(volume_f32);
+        let playable = source.fetch(api_track.clone()).await?;
+        let adapter = AsyncAdapterStream::new(Box::new(playable), 64 * 1024);
+
+        let input = Input::Live(
+            LiveInput::Raw(AudioStream {
+                input: Box::new(adapter),
+            }),
+            None,
+        );
+
+        let mut track = Track::new_with_data(input, Arc::new(api_track));
+
+        if self.volume as f32 != track.volume {
+            track = track.volume(self.volume as f32);
+        }
 
         // todo: before sending the new track, we may want to send a replaced notification from here before playing the new track
 
-        let track_handle = driver.play_only(track);
+        let driver = self
+            .internal
+            .driver
+            .as_mut()
+            .ok_or_else(|| anyhow!("No player driver found inside songbird"))?;
 
-        self.frame_counter.on_track_start();
+        let track_handle = driver.play_only(track);
 
         track_handle.add_event(
             Event::Track(TrackEvent::Play),
@@ -380,16 +315,6 @@ impl Player {
             Event::Track(TrackEvent::Pause),
             PlayerEvent::new(
                 Event::Track(TrackEvent::Pause),
-                self.guild_id,
-                self.internal.user_id,
-                self.internal.actor_ref.clone(),
-            ),
-        )?;
-
-        track_handle.add_event(
-            Event::Track(TrackEvent::Error),
-            PlayerEvent::new(
-                Event::Track(TrackEvent::Error),
                 self.guild_id,
                 self.internal.user_id,
                 self.internal.actor_ref.clone(),
@@ -422,11 +347,7 @@ impl Player {
     }
 
     #[message]
-    pub async fn stop(&mut self) {
-        if let Some(task) = self.internal.end_time_task.take() {
-            task.abort();
-        }
-
+    pub async fn stop(&self) {
         let Some(handle) = self.internal.handle.as_ref() else {
             return;
         };
@@ -478,116 +399,18 @@ impl Player {
             return;
         }
 
-        self.paused = pause;
+        self.paused = paused;
     }
 
     #[message]
     pub async fn set_volume(&mut self, volume: f32) {
         let Some(handle) = self.internal.handle.as_ref() else {
-            tracing::debug!(
-                "Cannot set volume for GuildId [{}]: no active track handle",
-                self.guild_id
-            );
             return;
         };
 
-        let volume_f32 = volume / 100.0;
-        match handle.set_volume(volume_f32) {
-            Ok(_) => {
-                self.volume = volume as u32;
-                tracing::debug!(
-                    "Volume set to {} (raw {}) for GuildId: [{}]",
-                    volume_f32,
-                    volume,
-                    self.guild_id
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to set volume for GuildId [{}]: {:?}",
-                    self.guild_id,
-                    e
-                );
-            }
+        if handle.set_volume(volume).is_ok() {
+            self.volume = volume as u32;
         }
-    }
-
-    fn apply_filters(
-        filter_chain: &Arc<Mutex<FilterChain>>,
-        guild_id: GuildId,
-        input: Input,
-    ) -> Input {
-        match input {
-            Input::Lazy(compose) => {
-                tracing::debug!(
-                    "Wrapping lazy input with FilteredCompose for GuildId [{guild_id}]"
-                );
-                Input::Lazy(Box::new(FilteredCompose::new(
-                    compose,
-                    filter_chain.clone(),
-                    48000,
-                    2,
-                )))
-            }
-            Input::Live(LiveInput::Raw(stream), data) => {
-                tracing::debug!(
-                    "Live raw input detected for GuildId [{guild_id}]. Attempting filter wrap..."
-                );
-
-                let hint = stream.hint.unwrap_or_default();
-                match FilteredSource::new(stream.input, hint, filter_chain.clone(), 48000, 2) {
-                    Ok(filtered) => {
-                        let out = AudioStream {
-                            input: Box::new(filtered) as Box<dyn symphonia::core::io::MediaSource>,
-                            hint: Some({
-                                let mut h = symphonia::core::probe::Hint::new();
-                                h.with_extension("wav");
-                                h
-                            }),
-                        };
-                        Input::Live(LiveInput::Raw(out), data)
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "FilteredSource creation failed for GuildId [{guild_id}]: {e}. \
-                             Track will not play."
-                        );
-                        Input::Lazy(Box::new(File::new("__filter_error_unsupported_codec__")))
-                    }
-                }
-            }
-            other => {
-                tracing::debug!(
-                    "Input type cannot be filtered for GuildId [{guild_id}], playing unfiltered"
-                );
-                other
-            }
-        }
-    }
-
-    #[message]
-    pub async fn set_filters(&mut self, filters: LavalinkFilters) -> Result<(), PlayerError> {
-        {
-            let mut chain = self
-                .filter_chain
-                .lock()
-                .map_err(|e| PlayerError::FailedMessage(format!("Filter lock error: {}", e)))?;
-            chain
-                .update_from_config(&filters)
-                .map_err(|e| PlayerError::FailedMessage(format!("Filter error: {}", e)))?;
-        }
-        self.filters = filters;
-
-        tracing::debug!(
-            "Filters updated for GuildId: [{}], active: {}",
-            self.guild_id,
-            self.filter_chain
-                .lock()
-                .map(|c| c.has_active_filters())
-                .unwrap_or(false)
-        );
-
-        Ok(())
     }
 
     #[message]

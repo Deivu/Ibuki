@@ -1,0 +1,17 @@
+{
+    "port": 8080,
+    "address": "0.0.0.0",
+    "authorization": "heavy-cruiser-ibuki",
+    "playerUpdateSecs": 30,
+    "statusUpdateSecs": 10,
+    "deezerConfig": {
+        "decryptKey": "your-decrypt-key",
+        "arl": "your-arl-token"
+    },
+    "youtubeConfig": {
+        "usePoToken": true,
+        "useOauth": false,
+        "cookies": "your-cookies-string"
+    },
+    "httpConfig": {}
+}
