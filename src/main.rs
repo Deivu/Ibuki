@@ -12,7 +12,7 @@ use bytesize::ByteSize;
 use cap::Cap;
 use dashmap::DashMap;
 use dotenv::dotenv;
-use impero_source::plugin::Plugin;
+use impero_source::runtime::plugin::Plugin;
 use kameo::actor::ActorRef;
 use mimalloc::MiMalloc;
 use reqwest::{Client, ClientBuilder};

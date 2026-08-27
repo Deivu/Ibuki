@@ -1,6 +1,6 @@
 use crate::{CONFIG, SOURCES};
-use impero_source::logger::{LogLevel, PluginLogKind, PluginLogger};
-use impero_source::plugin::{Plugin, QueryMatcher};
+use impero_source::runtime::logger::{LogLevel, PluginLogger};
+use impero_source::runtime::plugin::{Plugin, QueryMatcher};
 use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::Arc;
@@ -18,22 +18,14 @@ impl QueryMatcher for AllowAllQueries {
 struct IbukiPluginLogger;
 
 impl PluginLogger for IbukiPluginLogger {
-    fn log(
-        &self,
-        kind: PluginLogKind,
-        name: &str,
-        level: LogLevel,
-        timestamp: u64,
-        message: &[String],
-    ) {
+    fn log(&self, kind: &str, level: LogLevel, timestamp: u64, message: &[String]) {
         let message = message.join("\n");
-        let kind = kind.as_str();
 
         match level {
-            LogLevel::Info => tracing::info!(plugin = name, kind, timestamp, "{}", message),
-            LogLevel::Debug => tracing::debug!(plugin = name, kind, timestamp, "{}", message),
-            LogLevel::Warn => tracing::warn!(plugin = name, kind, timestamp, "{}", message),
-            LogLevel::Error => tracing::error!(plugin = name, kind, timestamp, "{}", message),
+            LogLevel::Info => tracing::info!(kind, timestamp, "{}", message),
+            LogLevel::Debug => tracing::debug!(kind, timestamp, "{}", message),
+            LogLevel::Warn => tracing::warn!(kind, timestamp, "{}", message),
+            LogLevel::Error => tracing::error!(kind, timestamp, "{}", message),
         }
     }
 }

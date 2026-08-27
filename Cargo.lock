@@ -1873,6 +1873,7 @@ dependencies = [
  "songbird",
  "symphonia",
  "tokio",
+ "tokio-util",
  "tower",
  "tracing",
  "tracing-subscriber",
@@ -1995,20 +1996,24 @@ dependencies = [
 [[package]]
 name = "impero-filter"
 version = "0.1.0"
-source = "git+https://github.com/Deivu/Impero.git?rev=3fd59dbc9f04a23033d6d007c90eb0d1ca74cab9#3fd59dbc9f04a23033d6d007c90eb0d1ca74cab9"
+source = "git+https://github.com/Deivu/Impero.git?rev=9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7#9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7"
 dependencies = [
  "abi_stable",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "impero-source"
 version = "0.1.0"
-source = "git+https://github.com/Deivu/Impero.git?rev=3fd59dbc9f04a23033d6d007c90eb0d1ca74cab9#3fd59dbc9f04a23033d6d007c90eb0d1ca74cab9"
+source = "git+https://github.com/Deivu/Impero.git?rev=9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7#9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7"
 dependencies = [
+ "anyhow",
  "async-trait",
  "base64 0.23.1",
  "byteorder",
+ "futures-util",
  "interprocess",
+ "m3u8-rs",
  "reqwest 0.13.4",
  "rmp-serde",
  "serde",
@@ -2016,6 +2021,7 @@ dependencies = [
  "songbird",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-util",
  "uuid",
 ]
 
@@ -2512,6 +2518,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
+name = "m3u8-rs"
+version = "6.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c94fe25bd0d08c68fd0fac4f9537f747246579cd270658fa9fee3d10af382716"
+dependencies = [
+ "chrono",
+ "nom",
+]
+
+[[package]]
 name = "mach"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2641,7 +2657,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4912,13 +4928,14 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.15"
+version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66a539a9ad6d5d281510d5bd368c973d636c02dbf8a67300bfb6b950696ad7df"
+checksum = "494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52"
 dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "libc",
  "pin-project-lite",
  "tokio",
 ]

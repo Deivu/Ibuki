@@ -25,14 +25,15 @@ block-padding = "0.4.2"
 anyhow = "1.0.104"
 bytesize = "2.7.0"
 rustls = { version = "0.23.43", features = ["ring"] }
+tokio-util = { features = ["io"], optional = true, version = "0.7" }
 
 [dependencies.impero-source]
 git = "https://github.com/Deivu/Impero.git"
-rev = "3fd59dbc9f04a23033d6d007c90eb0d1ca74cab9"
+rev = "9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7"
 
 [dependencies.impero-filter]
 git = "https://github.com/Deivu/Impero.git"
-rev = "3fd59dbc9f04a23033d6d007c90eb0d1ca74cab9"
+rev = "9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7"
 
 [dependencies.mimalloc]
 version = "0.1.48"
