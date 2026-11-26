@@ -153,7 +153,7 @@ async fn handle_player_event(player_event: PlayerEvent, data_result: DataResult)
                 .ok()?;
 
             let updates: Vec<PlayerUpdate> = vec![
-                PlayerUpdate::Volume(state.volume as u32),
+                PlayerUpdate::Volume((state.volume * 100.0).round() as u32),
                 PlayerUpdate::Position(state.position.as_millis() as u32),
             ];
 

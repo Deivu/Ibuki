@@ -1,15 +1,14 @@
-use crate::CLIENTS;
 use crate::models::{ApiNodeMessage, ApiReady};
 use crate::voice::manager::{CreatePlayerOptions, PlayerManager};
 use crate::voice::player::Player;
 use crate::ws::receiver::{ReceiverActor, ReceiverActorArgs};
 use crate::ws::sender::{SendToWebsocket, SenderActor};
-use anyhow::Result;
+use crate::{CLIENTS, SESSIONS};
 use axum::Error;
 use axum::extract::ConnectInfo;
 use axum::extract::ws::{CloseFrame, Message as WsMessage, WebSocket};
 use futures::StreamExt;
-use kameo::actor::{ActorRef, Spawn, WeakActorRef};
+use kameo::actor::{ActorId, ActorRef, Spawn, WeakActorRef};
 use kameo::error::ActorStopReason;
 use kameo::message::Context;
 use kameo::{Actor, Reply, messages};
@@ -19,6 +18,7 @@ use std::net::SocketAddr;
 use std::option::Option;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -77,6 +77,7 @@ impl Actor for WebSocketClient {
             // todo!() im not sure if i want this or i can just link the receiver actor to this actor so if that dies, so is this
             dropped: Arc::new(AtomicBool::new(false)),
         };
+        SESSIONS.insert(client.session_id.clone(), actor_ref.clone());
         CLIENTS.insert(user_id, actor_ref);
         tracing::info!(
             "Websocket client created and started with UserId: [{}]",
@@ -90,6 +91,7 @@ impl Actor for WebSocketClient {
         _: WeakActorRef<Self>,
         reason: ActorStopReason,
     ) -> Result<(), Self::Error> {
+        SESSIONS.remove(&self.session_id);
         CLIENTS.remove(&self.user_id);
         tracing::info!(
             "Websocket client deleted and stopped with UserId: [{}] Reason: [{}]",
@@ -130,7 +132,10 @@ impl WebSocketClient {
         } else {
             let queue_length = self.message_queue.len();
             self.message_queue.clear();
+
+            SESSIONS.remove(&self.session_id);
             self.session_id = Uuid::new_v4().as_u128().to_string();
+            SESSIONS.insert(self.session_id.clone(), ctx.actor_ref().clone());
 
             // todo!() disconnect_all and clear refactor soon for clearer code
             self.player_manager.destroy_all();
@@ -142,9 +147,12 @@ impl WebSocketClient {
             );
         }
 
+        let send_failed = Arc::new(Notify::new());
+
         let sender_actor = SenderActor::spawn(SenderActor {
             sink,
             dropped: self.dropped.clone(),
+            send_failed: send_failed.clone(),
         });
 
         ctx.actor_ref().link(&sender_actor).await;
@@ -161,6 +169,7 @@ impl WebSocketClient {
             stream,
             client_ref: ctx.actor_ref().clone(),
             dropped: self.dropped.clone(),
+            send_failed,
             user_id: self.user_id.clone(),
             players: self.player_manager.players.clone(),
             resume: self.resume.clone(),
@@ -229,8 +238,13 @@ impl WebSocketClient {
     }
 
     #[message]
-    pub async fn create_player(&self, options: CreatePlayerOptions) -> Result<()> {
-        self.player_manager.create_player(options).await.map(|_| ())
+    pub fn create_player(&self, options: CreatePlayerOptions) -> (ActorRef<Player>, bool) {
+        self.player_manager.create_player(options)
+    }
+
+    #[message]
+    pub fn remove_player(&self, guild_id: GuildId, id: ActorId) {
+        self.player_manager.remove_player(&guild_id, id);
     }
 
     #[message]

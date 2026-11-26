@@ -1,3 +1,4 @@
+use impero_filter::object::FilterObject;
 use impero_source::api::ApiTrack;
 use kameo::Reply;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -54,13 +55,11 @@ pub struct ApiPlayer {
     pub paused: bool,
     pub state: ApiPlayerState,
     pub voice: ApiVoiceData,
-    pub filters: LavalinkFilters,
+    pub filters: FilterObject,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApiException {
-    #[serde(deserialize_with = "str_to_u64", serialize_with = "u64_to_str")]
-    pub guild_id: u64,
     pub message: Option<String>,
     pub severity: String,
     pub cause: String,
@@ -147,6 +146,8 @@ pub struct ApiPlayerOptions {
     pub paused: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<ApiVoiceData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<FilterObject>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
@@ -220,96 +221,4 @@ pub struct ApiSessionBody {
 pub struct ApiSessionInfo {
     pub resuming_key: String,
     pub timeout: u16,
-}
-
-/**
- * The structs below is included because Anchorage (https://github.com/Deivu/Anchorage/tree/master) breaks without it
- */
-
-#[derive(Default, Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LavalinkFilters {
-    pub volume: Option<f64>,
-    pub equalizer: Option<Vec<Equalizer>>,
-    pub karaoke: Option<Karaoke>,
-    pub timescale: Option<Timescale>,
-    pub tremolo: Option<Tremolo>,
-    pub vibrato: Option<Vibrato>,
-    pub rotation: Option<Rotation>,
-    pub distortion: Option<Distortion>,
-    pub channel_mix: Option<ChannelMix>,
-    pub low_pass: Option<LowPass>,
-    pub plugin_filters: Option<Value>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Tremolo {
-    pub frequency: Option<f64>,
-    pub depth: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Vibrato {
-    pub frequency: Option<f64>,
-    pub depth: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Timescale {
-    pub speed: Option<f64>,
-    pub pitch: Option<f64>,
-    pub rate: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Rotation {
-    pub rotation_hz: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LowPass {
-    pub smoothing: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Karaoke {
-    pub level: Option<f64>,
-    pub mono_level: Option<f64>,
-    pub filter_band: Option<f64>,
-    pub filter_width: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Equalizer {
-    pub band: u16,
-    pub gain: f64,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Distortion {
-    pub sin_offset: Option<f64>,
-    pub sin_scale: Option<f64>,
-    pub cos_offset: Option<f64>,
-    pub cos_scale: Option<f64>,
-    pub tan_offset: Option<f64>,
-    pub tan_scale: Option<f64>,
-    pub offset: Option<f64>,
-    pub scale: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelMix {
-    pub left_to_left: Option<f64>,
-    pub left_to_right: Option<f64>,
-    pub right_to_left: Option<f64>,
-    pub right_to_right: Option<f64>,
 }

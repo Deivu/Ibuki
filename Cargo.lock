@@ -1845,6 +1845,7 @@ dependencies = [
 name = "ibuki"
 version = "0.1.0"
 dependencies = [
+ "abi_stable",
  "anyhow",
  "async-trait",
  "axum",
@@ -1996,16 +1997,16 @@ dependencies = [
 [[package]]
 name = "impero-filter"
 version = "0.1.0"
-source = "git+https://github.com/Deivu/Impero.git?rev=9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7#9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7"
 dependencies = [
  "abi_stable",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "impero-source"
 version = "0.1.0"
-source = "git+https://github.com/Deivu/Impero.git?rev=9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7#9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2014,6 +2015,7 @@ dependencies = [
  "futures-util",
  "interprocess",
  "m3u8-rs",
+ "regex",
  "reqwest 0.13.4",
  "rmp-serde",
  "serde",
@@ -2657,7 +2659,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4223,9 +4225,7 @@ dependencies = [
 
 [[package]]
 name = "songbird"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b9bf4ecb5083685b79a8fc60222f12e4f036e2817c5c341cd2b9ff2b429d237"
+version = "0.6.1"
 dependencies = [
  "aead",
  "aes-gcm",

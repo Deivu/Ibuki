@@ -1,5 +1,7 @@
 #![recursion_limit = "256"]
+use crate::filter::library::FilterLibrary;
 use crate::models::{ApiCpu, ApiMemory, ApiNodeMessage, ApiStats};
+use crate::source::library::SourceLibrary;
 use crate::util::config::Config;
 use crate::util::headers::generate_headers;
 use crate::util::task::{AddTask, TasksManager};
@@ -8,11 +10,9 @@ use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing;
 use axum::serve;
-use bytesize::ByteSize;
 use cap::Cap;
 use dashmap::DashMap;
 use dotenv::dotenv;
-use impero_source::runtime::plugin::Plugin;
 use kameo::actor::ActorRef;
 use mimalloc::MiMalloc;
 use reqwest::{Client, ClientBuilder};
@@ -20,7 +20,7 @@ use songbird::driver::Scheduler;
 use songbird::id::UserId;
 use std::env::set_var;
 use std::net::SocketAddr;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use tokio::main;
 use tokio::net;
 use tokio::task::JoinSet;
@@ -30,10 +30,11 @@ use tracing::Level;
 use tracing_subscriber::fmt;
 
 mod constants;
+mod filter;
 mod middlewares;
 mod models;
-mod plugin;
 mod routes;
+mod source;
 mod util;
 mod voice;
 mod ws;
@@ -43,7 +44,7 @@ static ALLOCATOR: Cap<MiMalloc> = Cap::new(MiMalloc, usize::MAX);
 static CONFIG: LazyLock<Config> = LazyLock::new(Config::new);
 static SCHEDULER: LazyLock<Scheduler> = LazyLock::new(Scheduler::default);
 static CLIENTS: LazyLock<DashMap<UserId, ActorRef<WebSocketClient>>> = LazyLock::new(DashMap::new);
-static SOURCES: LazyLock<DashMap<String, Arc<Plugin>>> = LazyLock::new(DashMap::new);
+static SESSIONS: LazyLock<DashMap<String, ActorRef<WebSocketClient>>> = LazyLock::new(DashMap::new);
 static TASKS: LazyLock<TasksManager<String>> = LazyLock::new(TasksManager::default);
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 static REQWEST: LazyLock<Client> = LazyLock::new(|| {
@@ -75,12 +76,13 @@ async fn main() {
 
     LazyLock::force(&CONFIG);
     LazyLock::force(&CLIENTS);
-    LazyLock::force(&SOURCES);
+    LazyLock::force(&SESSIONS);
     LazyLock::force(&TASKS);
     LazyLock::force(&START);
     LazyLock::force(&REQWEST);
 
-    plugin::load_plugins().await;
+    SourceLibrary::load_sources().await;
+    FilterLibrary::load_filters();
 
     create_tasks().await;
 
@@ -112,6 +114,7 @@ async fn main() {
         )
         .route_layer(
             ServiceBuilder::new()
+                .layer(from_fn(middlewares::auth::censor))
                 .layer(from_fn(middlewares::version::check))
                 .layer(from_fn(middlewares::auth::authenticate))
                 .layer(from_fn(middlewares::log::request)),
@@ -124,14 +127,14 @@ async fn main() {
 
     let local_addr = listener.local_addr().unwrap();
 
+    tracing::info!("Server is bound to {}", local_addr);
+
     serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
     .ok();
-
-    tracing::info!("Server is bound to {}", local_addr);
 }
 
 async fn create_tasks() {
@@ -152,38 +155,23 @@ async fn create_tasks() {
 
             let used = ALLOCATOR.allocated() as u64;
             let free = ALLOCATOR.remaining() as u64;
-            let limit = ALLOCATOR.limit() as u64;
-
-            tracing::debug!(
-                "Memory Usage: (Heap => [Used: {:.2}] [Free: {:.2}] [Limit: {:.2}]) (RSS => [{:.2}]) (VM => [{:.2}])",
-                ByteSize::b(used).display().si(),
-                ByteSize::b(free).display().si(),
-                ByteSize::b(limit).display().si(),
-                ByteSize::b(process_memory_info.resident_set_size)
-                    .display()
-                    .si(),
-                ByteSize::b(process_memory_info.virtual_memory_size)
-                    .display()
-                    .si(),
-            );
 
             let stats = ApiStats {
                 players: SCHEDULER.total_tasks() as u32,
                 playing_players: SCHEDULER.live_tasks() as u32,
                 uptime: START.elapsed().as_millis() as u64,
-                // todo: api memory is wip
                 memory: ApiMemory {
                     free,
                     used,
                     allocated: process_memory_info.resident_set_size,
                     reservable: process_memory_info.virtual_memory_size,
                 },
-                // todo: get actual system load later
                 cpu: ApiCpu {
                     cores: cores as u32,
                     system_load: usage,
                     lavalink_load: usage,
                 },
+                // todo: to be implemented
                 frame_stats: None,
             };
 

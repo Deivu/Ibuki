@@ -26,14 +26,13 @@ anyhow = "1.0.104"
 bytesize = "2.7.0"
 rustls = { version = "0.23.43", features = ["ring"] }
 tokio-util = { features = ["io"], optional = true, version = "0.7" }
+abi_stable = "0.11.3"
 
 [dependencies.impero-source]
-git = "https://github.com/Deivu/Impero.git"
-rev = "9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7"
+path = "../Impero/api/impero-source"
 
 [dependencies.impero-filter]
-git = "https://github.com/Deivu/Impero.git"
-rev = "9fa24dc4a15bcd2566fe3fb09b1b5fbb23b730f7"
+path = "../Impero/api/impero-filter"
 
 [dependencies.mimalloc]
 version = "0.1.48"
@@ -57,7 +56,7 @@ version = "1.53.1"
 features = ["tracing", "macros", "signal", "rt-multi-thread"]
 
 [dependencies.songbird]
-version = "=0.6.0"
+path = "../songbird"
 features = ["driver", "tungstenite", "rustls"]
 
 [dependencies.symphonia]
@@ -72,3 +71,6 @@ version = "0.8.9"
 [dependencies.serde]
 version = "1.0.229"
 features = ["derive"]
+
+[patch.crates-io]
+songbird = { path = "../songbird" }

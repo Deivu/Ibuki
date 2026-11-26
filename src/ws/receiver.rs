@@ -10,12 +10,14 @@ use kameo::error::{ActorStopReason, Infallible};
 use songbird::id::{GuildId, UserId};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 pub struct ReceiverActorArgs {
     pub stream: SplitStream<WebSocket>,
     pub client_ref: ActorRef<WebSocketClient>,
     pub dropped: Arc<AtomicBool>,
+    pub send_failed: Arc<Notify>,
     pub user_id: UserId,
     pub players: Arc<DashMap<GuildId, ActorRef<Player>>>,
     pub resume: Arc<AtomicBool>,
@@ -35,7 +37,16 @@ impl Actor for ReceiverActor {
         actor_ref: ActorRef<Self>,
     ) -> Result<ReceiverActor, Self::Error> {
         let handle = tokio::spawn(async move {
-            while let Some(Ok(message)) = args.stream.next().await {
+            loop {
+                let message = tokio::select! {
+                    message = args.stream.next() => message,
+                    () = args.send_failed.notified() => None,
+                };
+
+                let Some(Ok(message)) = message else {
+                    break;
+                };
+
                 match message {
                     Message::Close(close_frame) => {
                         tracing::info!("WebSocket closed: {:?}", close_frame);

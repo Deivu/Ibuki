@@ -1,12 +1,18 @@
 use super::events::PlayerEvent;
 use crate::CONFIG;
 use crate::SCHEDULER;
-use crate::SOURCES;
-use crate::models::{ApiPlayer, ApiPlayerState, ApiVoiceData, LavalinkFilters};
+use crate::filter::chain::driver_filters;
+use crate::filter::library::FilterLibrary;
+use crate::models::{
+    ApiException, ApiNodeMessage, ApiPlayer, ApiPlayerEvents, ApiPlayerState, ApiTrackEnd,
+    ApiTrackException, ApiVoiceData,
+};
+use crate::source::library::SourceLibrary;
 use crate::ws::client::{SendConnectionMessage, WebSocketClient};
 use anyhow::{Error, Result, anyhow};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
+use impero_filter::object::FilterObject;
 use impero_source::api::ApiTrack;
 use impero_source::util::decode_track;
 use kameo::actor::{ActorRef, WeakActorRef};
@@ -70,7 +76,7 @@ pub struct Player {
     pub paused: bool,
     pub state: ApiPlayerState,
     pub voice: ApiVoiceData,
-    pub filters: LavalinkFilters,
+    pub filters: FilterObject,
     internal: PlayerInternal,
 }
 
@@ -96,7 +102,6 @@ impl Actor for Player {
 
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let player = Player::new(args, actor_ref.downgrade()).await?;
-        player.internal.players.insert(player.guild_id, actor_ref);
         tracing::debug!("New Player Task spawned for GuildId: [{}]", player.guild_id);
         Ok(player)
     }
@@ -142,7 +147,7 @@ impl Player {
         let mut player = Player {
             guild_id: options.guild_id,
             track: None,
-            volume: 1,
+            volume: 100,
             paused: false,
             state: Default::default(),
             voice: options.server_update.clone(),
@@ -203,11 +208,15 @@ impl Player {
         };
 
         let Some(driver) = self.internal.driver.as_mut() else {
-            let config = config.unwrap_or_default().scheduler(SCHEDULER.to_owned());
+            let config = FilterLibrary::register_filters(
+                config.unwrap_or_default().scheduler(SCHEDULER.to_owned()),
+            );
 
             let mut driver = Driver::new(config.clone());
 
             driver.set_bitrate(Bitrate::Max);
+
+            driver.set_filters(driver_filters(&self.filters));
 
             driver.add_global_event(
                 Event::Core(CoreEvent::DriverDisconnect),
@@ -271,24 +280,20 @@ impl Player {
             user_data: None,
         };
 
-        let source = SOURCES
-            .get(&api_track.info.source_name)
-            .ok_or_else(|| anyhow!("Source {} is not loaded", api_track.info.source_name))?;
-
-        let playable = source.fetch(api_track.clone()).await?;
-        let adapter = AsyncAdapterStream::new(Box::new(playable), 64 * 1024);
-
-        let input = Input::Live(
-            LiveInput::Raw(AudioStream {
-                input: Box::new(adapter),
-            }),
-            None,
-        );
+        let input = match Self::load(&api_track).await {
+            Ok(input) => input,
+            Err(error) => {
+                self.track_failed(api_track, error).await;
+                return Ok(());
+            }
+        };
 
         let mut track = Track::new_with_data(input, Arc::new(api_track));
 
-        if self.volume as f32 != track.volume {
-            track = track.volume(self.volume as f32);
+        let volume = self.volume as f32 / 100.0;
+
+        if volume != track.volume {
+            track = track.volume(volume);
         }
 
         // todo: before sending the new track, we may want to send a replaced notification from here before playing the new track
@@ -344,6 +349,61 @@ impl Player {
         let _ = self.internal.handle.insert(track_handle);
 
         Ok(())
+    }
+
+    async fn load(api_track: &ApiTrack) -> Result<Input> {
+        let source = SourceLibrary::sources()
+            .iter()
+            .find(|source| source.name == api_track.info.source_name)
+            .cloned()
+            .ok_or_else(|| anyhow!("Source {} is not loaded", api_track.info.source_name))?;
+
+        let playable = source.fetch(api_track.clone()).await?;
+        let adapter = AsyncAdapterStream::new(Box::new(playable), 128 * 1024);
+
+        Ok(Input::Live(
+            LiveInput::Raw(AudioStream {
+                input: Box::new(adapter),
+            }),
+            None,
+        ))
+    }
+
+    async fn track_failed(&self, track: ApiTrack, error: Error) {
+        tracing::warn!(
+            "Player with GuildId [{}] failed to load a track: {:#}",
+            self.guild_id,
+            error
+        );
+
+        let guild_id = self.guild_id.0.get();
+
+        let events = [
+            ApiPlayerEvents::TrackExceptionEvent(ApiTrackException {
+                guild_id,
+                track: track.clone(),
+                exception: ApiException {
+                    message: Some(error.to_string()),
+                    severity: String::from("fault"),
+                    cause: format!("{:#}", error),
+                },
+            }),
+            ApiPlayerEvents::TrackEndEvent(ApiTrackEnd {
+                guild_id,
+                track,
+                reason: String::from("loadFailed"),
+            }),
+        ];
+
+        for event in events {
+            let Ok(serialized) = serde_json::to_string(&ApiNodeMessage::Event(Box::new(event)))
+            else {
+                continue;
+            };
+
+            self.send_to_player_websocket(Message::Text(serialized.into()))
+                .await;
+        }
     }
 
     #[message]
@@ -408,9 +468,18 @@ impl Player {
             return;
         };
 
-        if handle.set_volume(volume).is_ok() {
+        if handle.set_volume(volume / 100.0).is_ok() {
             self.volume = volume as u32;
         }
+    }
+
+    #[message]
+    pub fn set_filters(&mut self, filters: FilterObject) {
+        if let Some(driver) = self.internal.driver.as_mut() {
+            driver.set_filters(driver_filters(&filters));
+        }
+
+        self.filters = filters;
     }
 
     #[message]

@@ -1,10 +1,9 @@
-use super::player::{Connect, Player, PlayerOptions};
+use super::player::{Player, PlayerOptions};
 use crate::models::ApiVoiceData;
 use crate::ws::client::WebSocketClient;
-use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
-use kameo::actor::{ActorRef, Spawn, WeakActorRef};
+use kameo::actor::{ActorId, ActorRef, Spawn, WeakActorRef};
 use songbird::Config;
 use songbird::id::{GuildId, UserId};
 use std::sync::Arc;
@@ -35,20 +34,9 @@ impl PlayerManager {
         self.players.get(guild_id)
     }
 
-    pub async fn create_player(&self, options: CreatePlayerOptions) -> Result<()> {
+    pub fn create_player(&self, options: CreatePlayerOptions) -> (ActorRef<Player>, bool) {
         if let Some(player) = self.get_player(&options.guild_id) {
-            player
-                .wait_for_startup_result()
-                .await
-                .map_err(|e| anyhow!(format!("{:?}", e)))?;
-
-            player
-                .ask(Connect {
-                    server_update: options.server_update,
-                    config: options.config,
-                })
-                .await?;
-            return Ok(());
+            return (player.clone(), false);
         }
 
         let options = PlayerOptions {
@@ -60,12 +48,17 @@ impl PlayerManager {
             players: self.players.clone(),
         };
 
-        Player::spawn(options)
-            .wait_for_startup_result()
-            .await
-            .map_err(|e| anyhow!(format!("{:?}", e)))?;
+        let guild_id = options.guild_id;
+        let player = Player::spawn(options);
 
-        Ok(())
+        self.players.insert(guild_id, player.clone());
+
+        (player, true)
+    }
+
+    pub fn remove_player(&self, guild_id: &GuildId, id: ActorId) {
+        self.players
+            .remove_if(guild_id, |_, player| player.id() == id);
     }
 
     pub async fn destroy_player(&self, guild_id: &GuildId) {

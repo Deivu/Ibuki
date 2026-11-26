@@ -4,14 +4,17 @@ use super::PlayerMethodsPath;
 use super::PlayerUpdateQuery;
 use super::SessionMethodsPath;
 use super::{ApiError, ApiResult};
-use crate::CLIENTS;
-use crate::SOURCES;
+use crate::SESSIONS;
+use crate::filter::chain::check_filters;
 use crate::models::{ApiPlayerOptions, ApiSessionBody, ApiSessionInfo};
+use crate::source::library::SourceLibrary;
 use crate::util::converter::numbers::FromU64;
 use crate::voice::manager::CreatePlayerOptions;
-use crate::voice::player::{GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetVolume, Stop};
+use crate::voice::player::{
+    Connect, GetApiPlayerInfo, IsActive, Pause, Play, Seek, SetFilters, SetVolume, Stop,
+};
 use crate::ws::client::{
-    CreatePlayer, DestroyPlayer, GetPlayer, GetWebsocketInfo, UpdateWebsocket, WebSocketClient,
+    CreatePlayer, DestroyPlayer, GetPlayer, RemovePlayer, UpdateWebsocket, WebSocketClient,
 };
 use axum::Json;
 use axum::body::Body;
@@ -19,27 +22,16 @@ use axum::extract::Path;
 use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use dashmap::mapref::multiple::RefMulti;
 use impero_source::api::{ApiTrack, ApiTrackResult, ResolveOptions};
 use impero_source::util::decode_track;
 use kameo::actor::ActorRef;
 use serde_json::Value;
-use songbird::id::{GuildId, UserId};
+use songbird::id::GuildId;
 
 // todo: clean this up
 
-async fn get_client(
-    session_id: String,
-) -> Option<RefMulti<'static, UserId, ActorRef<WebSocketClient>>> {
-    for client in CLIENTS.iter() {
-        let Some(data) = client.ask(GetWebsocketInfo).await.ok() else {
-            continue;
-        };
-        if session_id == data.session_id {
-            return Some(client);
-        }
-    }
-    None
+fn get_client(session_id: &str) -> Option<ActorRef<WebSocketClient>> {
+    SESSIONS.get(session_id).map(|client| client.clone())
 }
 
 pub async fn get_player(
@@ -48,7 +40,7 @@ pub async fn get_player(
         guild_id,
     }): Path<PlayerMethodsPath>,
 ) -> ApiResult<Response> {
-    let Some(client) = get_client(session_id.clone()).await else {
+    let Some(client) = get_client(&session_id) else {
         tracing::debug!(
             "Failed to find websocket client for session id: {} and guild id: {}",
             session_id,
@@ -85,7 +77,20 @@ pub async fn update_player(
     }): Path<PlayerMethodsPath>,
     Json(update_player): Json<ApiPlayerOptions>,
 ) -> ApiResult<Response> {
-    let Some(client) = get_client(session_id.clone()).await else {
+    if let Some(filters) = &update_player.filters
+        && let Err(message) = check_filters(filters)
+    {
+        tracing::debug!(
+            "Filters rejected for {}/{}: {}",
+            session_id,
+            guild_id,
+            message
+        );
+
+        return Ok((StatusCode::BAD_REQUEST, message).into_response());
+    }
+
+    let Some(client) = get_client(&session_id) else {
         tracing::debug!(
             "Failed to find websocket client for session id: {} and guild id: {}",
             session_id,
@@ -111,14 +116,38 @@ pub async fn update_player(
     if let Some(server_update) = update_player.voice {
         let options = CreatePlayerOptions {
             guild_id: GuildId::from_u64(guild_id),
-            server_update,
+            server_update: server_update.clone(),
             config: None,
         };
 
-        client
+        let (player, created) = client
             .ask(CreatePlayer { options })
             .await
             .map_err(ApiError::new)?;
+
+        if let Err(error) = player.wait_for_startup_result().await {
+            client
+                .ask(RemovePlayer {
+                    guild_id: GuildId::from_u64(guild_id),
+                    id: player.id(),
+                })
+                .await
+                .map_err(ApiError::new)?;
+
+            tracing::error!("Failed to start player: {:?}", error);
+
+            return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+        }
+
+        if !created {
+            player
+                .ask(Connect {
+                    server_update,
+                    config: None,
+                })
+                .await
+                .map_err(ApiError::new)?;
+        }
     }
 
     let Some(player) = client
@@ -150,6 +179,13 @@ pub async fn update_player(
                 stopped = true;
             }
         }
+    }
+
+    if let Some(filters) = update_player.filters {
+        player
+            .ask(SetFilters { filters })
+            .await
+            .map_err(ApiError::new)?;
     }
 
     if !stopped {
@@ -185,7 +221,7 @@ pub async fn destroy_player(
         guild_id,
     }): Path<PlayerMethodsPath>,
 ) -> ApiResult<Response> {
-    let Some(client) = get_client(session_id.clone()).await else {
+    let Some(client) = get_client(&session_id) else {
         tracing::debug!(
             "Failed to find websocket client for session id: {} and guild id: {}",
             session_id,
@@ -210,7 +246,7 @@ pub async fn update_session(
     Path(SessionMethodsPath { session_id }): Path<SessionMethodsPath>,
     Json(update_session): Json<ApiSessionBody>,
 ) -> ApiResult<Response> {
-    let Some(client) = get_client(session_id.clone()).await else {
+    let Some(client) = get_client(&session_id) else {
         tracing::debug!(
             "Failed to find websocket client for session id: {}",
             session_id,
@@ -255,10 +291,7 @@ pub async fn decode(query: Query<DecodeQueryString>) -> ApiResult<Response> {
 #[tracing::instrument]
 pub async fn encode(query: Query<EncodeQueryString>) -> ApiResult<Response> {
     let mut track = ApiTrackResult::Empty(Value::Array(Vec::new()));
-
-    for source in SOURCES.iter() {
-        let plugin = source.value();
-
+    for plugin in SourceLibrary::sources() {
         track = plugin
             .resolve(ResolveOptions {
                 identifier: query.identifier.clone(),
@@ -266,6 +299,10 @@ pub async fn encode(query: Query<EncodeQueryString>) -> ApiResult<Response> {
             })
             .await
             .map_err(ApiError::new)?;
+
+        if !matches!(track, ApiTrackResult::Empty(_)) {
+            break;
+        }
     }
 
     let string = serde_json::to_string_pretty(&track).map_err(ApiError::new)?;

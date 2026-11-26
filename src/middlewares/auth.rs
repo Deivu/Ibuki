@@ -4,6 +4,14 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
+pub async fn censor(mut request: Request, next: Next) -> Response {
+    if let Some(value) = request.headers_mut().get_mut("Authorization") {
+        value.set_sensitive(true);
+    }
+
+    next.run(request).await
+}
+
 #[tracing::instrument]
 pub async fn authenticate(request: Request, next: Next) -> Response {
     let Some(auth) = request
